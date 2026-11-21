@@ -10,7 +10,7 @@ info:
     real-time email processing and scheduled bulk processing.
 
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8081/api/v1
     description: Local development server
 
 tags:
@@ -29,8 +29,9 @@ paths:
         Stores an email, extraction run, invoice, and its line items.
 
         Intended for real-time n8n workflows triggered by a new email.
-        The Gmail ID is unique and can be used to prevent duplicate
-        email processing.
+        Repeated requests for the same Gmail ID and invoice number return
+        the existing invoice. Include an invoice number when one email can
+        contain multiple invoices.
       operationId: createInvoice
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -66,17 +67,20 @@ paths:
         - Invoices
       summary: Create multiple invoices
       description: |
-        Stores multiple invoice records in one request.
+        Stores multiple invoice records in one request, including multiple
+        invoices associated with the same email.
 
         Intended for scheduled or batch n8n workflows that process
-        multiple emails.
+        multiple invoices from one or more emails. Set extraction.channel
+        to pdf or img for each item.
 
         Each invoice is processed independently. Partial success is
         supported: a failed record does not prevent other records
         from being processed.
 
-        Maximum 100 invoices per request. Larger batches should be
-        split into multiple requests.
+        The request may contain invoices directly or inside a body wrapper
+        for n8n compatibility. Maximum 100 invoices per request. Larger
+        batches should be split into multiple requests.
       operationId: bulkCreateInvoices
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -85,16 +89,32 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - invoices
-              properties:
-                invoices:
-                  type: array
-                  minItems: 1
-                  maxItems: 100
-                  items:
-                    $ref: '#/components/schemas/InvoiceCreateRequest'
+              oneOf:
+                - type: object
+                  required:
+                    - invoices
+                  properties:
+                    invoices:
+                      type: array
+                      minItems: 1
+                      maxItems: 100
+                      items:
+                        $ref: '#/components/schemas/InvoiceCreateRequest'
+                - type: object
+                  required:
+                    - body
+                  properties:
+                    body:
+                      type: object
+                      required:
+                        - invoices
+                      properties:
+                        invoices:
+                          type: array
+                          minItems: 1
+                          maxItems: 100
+                          items:
+                            $ref: '#/components/schemas/InvoiceCreateRequest'
       responses:
         '200':
           description: Batch processing completed, possibly with partial failures
@@ -207,17 +227,15 @@ paths:
 
   /convert:
     post:
-      servers:
-        - url: http://localhost:8080
-          description: Local PDF-to-image service (its host and port are configurable).
       tags:
         - Image Processing
       summary: Convert a PDF into page images
       description: |
         Converts an uploaded PDF to PNG images at 150 DPI and returns each
-        image as a Base64-encoded string. Only filenames ending in `.pdf`
-        are accepted. Uploads are limited to 20 MB and conversion includes
-        at most the first 10 pages.
+        image as a Base64-encoded string. This endpoint runs in the invoice
+        API server at `/api/v1/convert`. Only filenames ending in `.pdf` are
+        accepted. Uploads are limited to 20 MB and conversion includes at
+        most the first 10 pages.
       operationId: convertPdfToImages
       requestBody:
         required: true
@@ -252,7 +270,7 @@ paths:
               schema:
                 type: string
         '500':
-          description: Temporary-file or image read/write failure
+          description: Conversion tools unavailable or temporary/image I/O failure
           content:
             text/plain:
               schema:
@@ -354,6 +372,11 @@ components:
           description: Unique Gmail message ID.
         thread_id:
           type: string
+        gmail_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Gmail web URL for opening the source thread, when available.
         subject:
           type: string
         sender:
@@ -407,6 +430,7 @@ components:
           type: string
         invoice_number:
           type: string
+          description: Invoice number used with gmail_id to deduplicate invoices from the same email.
         invoice_date:
           type: string
           format: date
