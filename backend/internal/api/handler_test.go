@@ -17,6 +17,10 @@ func (emptyInvoiceRepository) ListInvoices(context.Context, invoices.ListFilters
 	return invoices.InvoiceListResponse{Page: 1, Limit: 20, Invoices: []invoices.InvoiceSummary{}}, nil
 }
 
+func (emptyInvoiceRepository) GetInvoice(context.Context, int64) (invoices.InvoiceDetailResponse, error) {
+	return invoices.InvoiceDetailResponse{}, invoices.ErrInvoiceNotFound
+}
+
 type unusedPDFConverter struct{}
 
 func (unusedPDFConverter) PageCount(context.Context, string) (int, error) {

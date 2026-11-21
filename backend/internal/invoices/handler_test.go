@@ -12,14 +12,19 @@ import (
 )
 
 type fakeListRepository struct {
-	filters ListFilters
-	result  InvoiceListResponse
-	err     error
+	filters      ListFilters
+	result       InvoiceListResponse
+	detailResult InvoiceDetailResponse
+	err          error
 }
 
 func (f *fakeListRepository) ListInvoices(_ context.Context, filters ListFilters) (InvoiceListResponse, error) {
 	f.filters = filters
 	return f.result, f.err
+}
+
+func (f *fakeListRepository) GetInvoice(context.Context, int64) (InvoiceDetailResponse, error) {
+	return f.detailResult, f.err
 }
 
 func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
@@ -50,8 +55,58 @@ func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+
 	if body.Total != 1 || body.Page != 2 || body.Limit != 5 || len(body.Invoices) != 1 {
 		t.Fatalf("unexpected response: %+v", body)
+	}
+}
+
+func TestGetInvoiceReturnsEmailMetadata(t *testing.T) {
+	repository := &fakeListRepository{
+		detailResult: InvoiceDetailResponse{
+			Invoice: InvoiceSummary{ID: 42},
+			Email: EmailData{
+				GmailID: "demo-gmail-001",
+				Sender:  stringPointer("billing@example.test"),
+				Subject: stringPointer("Sample invoice"),
+			},
+			LineItems: []LineItem{},
+		},
+	}
+	handler := NewHandler(repository, nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/invoice.get?id=42", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var result InvoiceDetailResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Email.GmailID != "demo-gmail-001" || result.Email.Sender == nil ||
+		*result.Email.Sender != "billing@example.test" || result.Email.Subject == nil {
+		t.Fatalf("email metadata missing from response: %+v", result.Email)
+	}
+}
+
+func TestGetInvoiceRejectsInvalidIDAndReturnsNotFound(t *testing.T) {
+	handler := NewHandler(&fakeListRepository{err: ErrInvoiceNotFound}, nil)
+	for _, test := range []struct {
+		path       string
+		wantStatus int
+	}{
+		{path: "/api/v1/invoice.get?id=0", wantStatus: http.StatusBadRequest},
+		{path: "/api/v1/invoice.get?id=missing", wantStatus: http.StatusBadRequest},
+		{path: "/api/v1/invoice.get?id=99", wantStatus: http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if response.Code != test.wantStatus {
+			t.Errorf("%s status = %d, want %d", test.path, response.Code, test.wantStatus)
+		}
 	}
 }
 
@@ -87,4 +142,8 @@ func TestListInvoicesReturnsInternalError(t *testing.T) {
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
 	}
+}
+
+func stringPointer(value string) *string {
+	return &value
 }

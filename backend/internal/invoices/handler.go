@@ -3,6 +3,7 @@ package invoices
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,11 +12,11 @@ import (
 )
 
 type Handler struct {
-	repository ListRepository
+	repository Repository
 	logger     *slog.Logger
 }
 
-func NewHandler(repository ListRepository, logger *slog.Logger) http.Handler {
+func NewHandler(repository Repository, logger *slog.Logger) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -23,14 +24,21 @@ func NewHandler(repository ListRepository, logger *slog.Logger) http.Handler {
 		repository: repository,
 		logger:     logger,
 	}
-	return http.HandlerFunc(handler.listInvoices)
+	return http.HandlerFunc(handler.serveHTTP)
+}
+
+func (h *Handler) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/api/v1/invoice.list":
+		h.listInvoices(w, r)
+	case "/api/v1/invoice.get":
+		h.getInvoice(w, r)
+	default:
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Endpoint not found.")
+	}
 }
 
 func (h *Handler) listInvoices(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/api/v1/invoice.list" {
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "Endpoint not found.")
-		return
-	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed.")
@@ -49,6 +57,33 @@ func (h *Handler) listInvoices(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("list invoices failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Could not retrieve invoices.")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) getInvoice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed.")
+		return
+	}
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "id must be a positive integer.")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	result, err := h.repository.GetInvoice(ctx, id)
+	if errors.Is(err, ErrInvoiceNotFound) {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Invoice not found.")
+		return
+	}
+	if err != nil {
+		h.logger.Error("get invoice failed", "invoice_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Could not retrieve invoice.")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

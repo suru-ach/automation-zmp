@@ -9,13 +9,15 @@ import (
 )
 
 func NewHandler(
-	invoiceRepository invoices.ListRepository,
+	invoiceRepository invoices.Repository,
 	pdfConverter pdfimages.Converter,
 	allowedOrigin string,
 	logger *slog.Logger,
 ) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/invoice.list", invoices.NewHandler(invoiceRepository, logger))
+	invoiceHandler := invoices.NewHandler(invoiceRepository, logger)
+	mux.Handle("/api/v1/invoice.list", invoiceHandler)
+	mux.Handle("/api/v1/invoice.get", invoiceHandler)
 	mux.Handle("/api/v1/convert", pdfimages.NewHandler(pdfConverter, logger))
 	return cors(mux, allowedOrigin)
 }
