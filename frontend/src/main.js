@@ -309,6 +309,7 @@ function renderInvoiceDetails(details) {
         ["Thread ID", email.thread_id],
         ["Message ID", email.message_id],
       ])}</div>
+      ${email.gmail_url ? `<a class="email-link" href="${escapeHtml(email.gmail_url)}" target="_blank" rel="noopener noreferrer">Open in Gmail ↗</a>` : ""}
       ${emailBody ? `<div class="email-body"><span>Email body</span><pre>${escapeHtml(emailBody)}</pre></div>` : ""}
     </section>
     <section class="detail-section">

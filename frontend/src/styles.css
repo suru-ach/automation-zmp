@@ -116,6 +116,8 @@ td small { margin-top: 4px; color: #9aa3b2; font-size: 10px; }
 .detail-item { min-width: 0; min-height: 58px; padding: 10px 12px; background: #fff; }
 .detail-item span, .email-body > span { display: block; margin-bottom: 5px; color: #8791a3; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .detail-item strong { display: block; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
+.email-link { display: inline-block; margin-top: 12px; color: #36599e; font-size: 12px; font-weight: 700; text-decoration: none; }
+.email-link:hover { text-decoration: underline; }
 .email-body { margin-top: 12px; padding: 12px; border: 1px solid #edf0f4; border-radius: 8px; }
 .email-body pre { max-height: 180px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #536078; font: inherit; font-size: 12px; line-height: 1.6; }
 .section-count { margin-left: 5px; color: #8791a3; font-size: 11px; font-weight: 500; }
