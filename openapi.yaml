@@ -1,0 +1,633 @@
+
+openapi: 3.1.0
+
+info:
+  title: Invoice Processing API
+  version: 1.0.0
+  description: |
+    API for storing, retrieving, and reporting extracted invoice data.
+    Designed to receive invoice data from n8n workflows for both
+    real-time email processing and scheduled bulk processing.
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development server
+
+tags:
+  - name: Invoices
+  - name: Reports
+  - name: Image Processing
+
+paths:
+
+  /invoice.create:
+    post:
+      tags:
+        - Invoices
+      summary: Create a single invoice
+      description: |
+        Stores an email, extraction run, invoice, and its line items.
+
+        Intended for real-time n8n workflows triggered by a new email.
+        The Gmail ID is unique and can be used to prevent duplicate
+        email processing.
+      operationId: createInvoice
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceCreateRequest'
+      responses:
+        '201':
+          description: Invoice successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceCreateResponse'
+        '200':
+          description: Invoice already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceCreateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /invoice.bulk-create:
+    post:
+      tags:
+        - Invoices
+      summary: Create multiple invoices
+      description: |
+        Stores multiple invoice records in one request.
+
+        Intended for scheduled or batch n8n workflows that process
+        multiple emails.
+
+        Each invoice is processed independently. Partial success is
+        supported: a failed record does not prevent other records
+        from being processed.
+
+        Maximum 100 invoices per request. Larger batches should be
+        split into multiple requests.
+      operationId: bulkCreateInvoices
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - invoices
+              properties:
+                invoices:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/InvoiceCreateRequest'
+      responses:
+        '200':
+          description: Batch processing completed, possibly with partial failures
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkInvoiceCreateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /invoice.list:
+    get:
+      tags:
+        - Invoices
+      summary: List invoices
+      description: Retrieve invoices using filters and pagination.
+      operationId: listInvoices
+      parameters:
+        - name: vendor_name
+          in: query
+          schema:
+            type: string
+
+        - name: po_number
+          in: query
+          schema:
+            type: string
+
+        - name: invoice_number
+          in: query
+          schema:
+            type: string
+
+        - name: is_invoice
+          in: query
+          schema:
+            type: boolean
+
+        - name: from_date
+          in: query
+          description: Filter by invoice date, starting from this date.
+          schema:
+            type: string
+            format: date
+
+        - name: to_date
+          in: query
+          description: Filter by invoice date, ending on this date.
+          schema:
+            type: string
+            format: date
+
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+
+      responses:
+        '200':
+          description: Invoice list retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /invoice.get:
+    get:
+      tags:
+        - Invoices
+      summary: Get invoice details
+      operationId: getInvoice
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Invoice details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /convert:
+    post:
+      servers:
+        - url: http://localhost:8080
+          description: Local PDF-to-image service (its host and port are configurable).
+      tags:
+        - Image Processing
+      summary: Convert a PDF into page images
+      description: |
+        Converts an uploaded PDF to PNG images at 150 DPI and returns each
+        image as a Base64-encoded string. Only filenames ending in `.pdf`
+        are accepted. Uploads are limited to 20 MB and conversion includes
+        at most the first 10 pages.
+      operationId: convertPdfToImages
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF file to convert; the filename must end in `.pdf`.
+      responses:
+        '200':
+          description: PDF pages converted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PdfImageConversionResponse'
+        '400':
+          description: Missing or invalid PDF upload, or PDF conversion failed
+          content:
+            text/plain:
+              schema:
+                type: string
+        '405':
+          description: Method other than POST used for this endpoint
+          content:
+            text/plain:
+              schema:
+                type: string
+        '500':
+          description: Temporary-file or image read/write failure
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /report.gen:
+    post:
+      tags:
+        - Reports
+      summary: Generate invoice reconciliation report
+      description: |
+        Generates an Excel report by comparing invoice data with
+        the supplied purchase order workbook.
+
+        If from_date and to_date are omitted, the report uses
+        the previous calendar month.
+
+        This endpoint does not modify invoice records or approval status.
+      operationId: generateReport
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Purchase order Excel or CSV file.
+                from_date:
+                  type: string
+                  format: date
+                to_date:
+                  type: string
+                  format: date
+      responses:
+        '200':
+          description: Excel report generated successfully
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Optional key used to identify a repeated API request.
+        Reusing a key with the same request should not create
+        duplicate records.
+      schema:
+        type: string
+        maxLength: 255
+
+  schemas:
+
+    InvoiceCreateRequest:
+      type: object
+      required:
+        - email
+        - extraction
+        - invoice
+        - line_items
+      properties:
+
+        email:
+          $ref: '#/components/schemas/EmailInput'
+
+        extraction:
+          $ref: '#/components/schemas/ExtractionInput'
+
+        invoice:
+          $ref: '#/components/schemas/InvoiceInput'
+
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceLineItem'
+
+    EmailInput:
+      type: object
+      required:
+        - gmail_id
+      properties:
+        gmail_id:
+          type: string
+          description: Unique Gmail message ID.
+        thread_id:
+          type: string
+        subject:
+          type: string
+        sender:
+          type: string
+        recipient:
+          type: string
+        email_date:
+          type: string
+          format: date-time
+        body:
+          type: string
+
+    ExtractionInput:
+      type: object
+      required:
+        - channel
+        - model
+      properties:
+        channel:
+          type: string
+          enum:
+            - pdf
+            - img
+        model:
+          type: string
+          description: Extraction model name.
+        created_at:
+          description: Timestamp or model-provided creation metadata.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: array
+              items: {}
+        done:
+          type: boolean
+        done_reason:
+          type: string
+        response_count:
+          type: integer
+          minimum: 0
+
+    InvoiceInput:
+      type: object
+      properties:
+        is_invoice:
+          type: boolean
+        reason:
+          type: string
+          description: Reason when the document is not an invoice.
+        vendor_name:
+          type: string
+        invoice_number:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        po_number:
+          type: string
+        due_date:
+          type: string
+          format: date
+        bill_to:
+          type: string
+        currency:
+          type: string
+          maxLength: 10
+          example: INR
+        subtotal:
+          type: number
+          format: double
+        tax_amount:
+          type: number
+          format: double
+        grand_total:
+          type: number
+          format: double
+        notes:
+          type: string
+
+    InvoiceLineItem:
+      type: object
+      properties:
+        description:
+          type: string
+        quantity:
+          type: number
+          format: double
+        unit:
+          type: string
+        unit_price:
+          type: number
+          format: double
+        line_total:
+          type: number
+          format: double
+
+    InvoiceCreateResponse:
+      type: object
+      required:
+        - success
+        - invoice_id
+      properties:
+        success:
+          type: boolean
+        invoice_id:
+          type: integer
+          format: int64
+        message:
+          type: string
+        already_exists:
+          type: boolean
+          default: false
+
+    BulkInvoiceCreateResponse:
+      type: object
+      required:
+        - total
+        - created
+        - already_exists
+        - failed
+        - results
+      properties:
+        total:
+          type: integer
+        created:
+          type: integer
+        already_exists:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            required:
+              - gmail_id
+              - status
+            properties:
+              gmail_id:
+                type: string
+              status:
+                type: string
+                enum:
+                  - created
+                  - already_exists
+                  - failed
+              invoice_id:
+                type: integer
+                format: int64
+              err_code:
+                type: string
+              err_msg:
+                type: string
+
+    InvoiceListResponse:
+      type: object
+      required:
+        - total
+        - page
+        - limit
+        - invoices
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        invoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceSummary'
+
+    InvoiceSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        vendor_name:
+          type: string
+        invoice_number:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        po_number:
+          type: string
+        grand_total:
+          type: number
+        currency:
+          type: string
+        is_invoice:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    InvoiceDetailResponse:
+      type: object
+      properties:
+        invoice:
+          $ref: '#/components/schemas/InvoiceSummary'
+        extraction:
+          $ref: '#/components/schemas/ExtractionInput'
+        email:
+          $ref: '#/components/schemas/EmailInput'
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceLineItem'
+
+    PdfImageConversionResponse:
+      type: object
+      required:
+        - filename
+        - page_count
+        - images
+      properties:
+        filename:
+          type: string
+          description: Name of the uploaded PDF.
+        page_count:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Number of pages converted, up to the first 10 PDF pages.
+        images:
+          type: array
+          description: Base64-encoded PNG image for each converted page.
+          items:
+            type: string
+            format: byte
+
+    Error:
+      type: object
+      required:
+        - err_code
+        - err_msg
+      properties:
+        err_code:
+          type: string
+        err_msg:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+
+    BadRequest:
+      description: Invalid request payload or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Request conflicts with existing data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
