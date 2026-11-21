@@ -16,6 +16,8 @@ func NewHandler(
 ) http.Handler {
 	mux := http.NewServeMux()
 	invoiceHandler := invoices.NewHandler(invoiceRepository, logger)
+	mux.Handle("/api/v1/invoice.create", invoiceHandler)
+	mux.Handle("/api/v1/invoice.bulk-create", invoiceHandler)
 	mux.Handle("/api/v1/invoice.list", invoiceHandler)
 	mux.Handle("/api/v1/invoice.get", invoiceHandler)
 	mux.Handle("/api/v1/convert", pdfimages.NewHandler(pdfConverter, logger))

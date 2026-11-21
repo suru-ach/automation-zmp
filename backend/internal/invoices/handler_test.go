@@ -12,10 +12,14 @@ import (
 )
 
 type fakeListRepository struct {
-	filters      ListFilters
-	result       InvoiceListResponse
-	detailResult InvoiceDetailResponse
-	err          error
+	filters       ListFilters
+	result        InvoiceListResponse
+	detailResult  InvoiceDetailResponse
+	createRequest CreateInvoiceRequest
+	createCalls   []CreateInvoiceRequest
+	createResult  CreateInvoiceResponse
+	createResults []CreateInvoiceResponse
+	err           error
 }
 
 func (f *fakeListRepository) ListInvoices(_ context.Context, filters ListFilters) (InvoiceListResponse, error) {
@@ -25,6 +29,15 @@ func (f *fakeListRepository) ListInvoices(_ context.Context, filters ListFilters
 
 func (f *fakeListRepository) GetInvoice(context.Context, int64) (InvoiceDetailResponse, error) {
 	return f.detailResult, f.err
+}
+
+func (f *fakeListRepository) CreateInvoice(_ context.Context, request CreateInvoiceRequest) (CreateInvoiceResponse, error) {
+	f.createRequest = request
+	f.createCalls = append(f.createCalls, request)
+	if len(f.createResults) >= len(f.createCalls) {
+		return f.createResults[len(f.createCalls)-1], f.err
+	}
+	return f.createResult, f.err
 }
 
 func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
@@ -69,6 +82,9 @@ func TestGetInvoiceReturnsEmailMetadata(t *testing.T) {
 				GmailID: "demo-gmail-001",
 				Sender:  stringPointer("billing@example.test"),
 				Subject: stringPointer("Sample invoice"),
+				GmailURL: stringPointer(
+					"https://mail.google.com/mail/u/0/#all/demo-thread-001",
+				),
 			},
 			LineItems: []LineItem{},
 		},
@@ -90,6 +106,10 @@ func TestGetInvoiceReturnsEmailMetadata(t *testing.T) {
 		*result.Email.Sender != "billing@example.test" || result.Email.Subject == nil {
 		t.Fatalf("email metadata missing from response: %+v", result.Email)
 	}
+	if result.Email.GmailURL == nil ||
+		*result.Email.GmailURL != "https://mail.google.com/mail/u/0/#all/demo-thread-001" {
+		t.Fatalf("Gmail URL missing from response: %+v", result.Email)
+	}
 }
 
 func TestGetInvoiceRejectsInvalidIDAndReturnsNotFound(t *testing.T) {
@@ -107,6 +127,177 @@ func TestGetInvoiceRejectsInvalidIDAndReturnsNotFound(t *testing.T) {
 		if response.Code != test.wantStatus {
 			t.Errorf("%s status = %d, want %d", test.path, response.Code, test.wantStatus)
 		}
+	}
+}
+
+func TestCreateInvoiceReturnsCreatedResponse(t *testing.T) {
+	repository := &fakeListRepository{
+		createResult: CreateInvoiceResponse{
+			Success:   true,
+			InvoiceID: 73,
+			Message:   "Invoice created.",
+		},
+	}
+	handler := NewHandler(repository, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/invoice.create", strings.NewReader(`{
+		"email":{"gmail_id":"new-message-73","subject":"Invoice"},
+		"extraction":{"channel":"pdf","model":"test-model"},
+		"invoice":{"vendor_name":"Example Vendor","grand_total":118},
+		"line_items":[{"description":"Test item","quantity":1,"unit":"each","unit_price":118,"line_total":118}]
+	}`))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+	var result CreateInvoiceResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !result.Success || result.InvoiceID != 73 || result.AlreadyExists {
+		t.Fatalf("unexpected create response: %+v", result)
+	}
+	if repository.createRequest.Email == nil ||
+		repository.createRequest.Email.GmailID != "new-message-73" ||
+		repository.createRequest.Invoice == nil ||
+		repository.createRequest.Invoice.VendorName == nil ||
+		*repository.createRequest.Invoice.VendorName != "Example Vendor" ||
+		repository.createRequest.LineItems == nil ||
+		len(*repository.createRequest.LineItems) != 1 {
+		t.Fatalf("request was not decoded correctly: %+v", repository.createRequest)
+	}
+}
+
+func TestCreateInvoiceReturnsOKForDuplicateEmail(t *testing.T) {
+	handler := NewHandler(&fakeListRepository{
+		createResult: CreateInvoiceResponse{
+			Success:       true,
+			InvoiceID:     73,
+			Message:       "Invoice already exists.",
+			AlreadyExists: true,
+		},
+	}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/invoice.create", strings.NewReader(`{
+		"email":{"gmail_id":"existing-message"},
+		"extraction":{"channel":"pdf","model":"test-model"},
+		"invoice":{},
+		"line_items":[]
+	}`))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
+func TestCreateInvoiceRejectsMalformedAndInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid JSON", body: `{"email":`},
+		{name: "missing fields", body: `{}`},
+		{name: "invalid channel", body: `{"email":{"gmail_id":"id"},"extraction":{"channel":"unknown","model":"test"},"invoice":{},"line_items":[]}`},
+		{name: "invalid invoice date", body: `{"email":{"gmail_id":"id"},"extraction":{"channel":"pdf","model":"test"},"invoice":{"invoice_date":"yesterday"},"line_items":[]}`},
+		{name: "trailing JSON", body: `{"email":{"gmail_id":"id"},"extraction":{"channel":"pdf","model":"test"},"invoice":{},"line_items":[]} {}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &fakeListRepository{}
+			handler := NewHandler(repository, nil)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/invoice.create", strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+			if repository.createRequest.Email != nil {
+				t.Fatal("repository called for invalid request")
+			}
+		})
+	}
+}
+
+func TestBulkCreateInvoicesAcceptsBodyWrapperAndPartialFailures(t *testing.T) {
+	repository := &fakeListRepository{
+		createResults: []CreateInvoiceResponse{
+			{Success: true, InvoiceID: 73},
+			{Success: true, InvoiceID: 74},
+		},
+	}
+	handler := NewHandler(repository, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/invoice.bulk-create", strings.NewReader(`{
+		"body": {
+			"invoices": [
+				{
+					"email":{"gmail_id":"same-email"},
+					"extraction":{"channel":"pdf","model":"test"},
+					"invoice":{"invoice_number":"INV-1"},
+					"line_items":[]
+				},
+				{
+					"email":{"gmail_id":"same-email"},
+					"extraction":{"channel":"img","model":"test"},
+					"invoice":{"invoice_number":"INV-2"},
+					"line_items":[]
+				},
+				{
+					"email":{"gmail_id":"invalid-item"},
+					"extraction":{"channel":"unknown","model":"test"},
+					"invoice":{},
+					"line_items":[]
+				}
+			]
+		}
+	}`))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body)
+	}
+	var result BulkCreateInvoicesResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Total != 3 || result.Created != 2 || result.AlreadyExists != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected bulk counts: %+v", result)
+	}
+	if len(repository.createCalls) != 2 ||
+		repository.createCalls[0].Email.GmailID != "same-email" ||
+		*repository.createCalls[0].Invoice.InvoiceNumber != "INV-1" ||
+		*repository.createCalls[1].Invoice.InvoiceNumber != "INV-2" {
+		t.Fatalf("valid invoices were not individually submitted: %+v", repository.createCalls)
+	}
+	if result.Results[2].ErrCode != "INVALID_INVOICE" {
+		t.Fatalf("invalid item did not report validation error: %+v", result.Results[2])
+	}
+}
+
+func TestBulkCreateInvoicesRejectsInvalidBatchShape(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty batch", body: `{"invoices":[]}`},
+		{name: "more than one source", body: `{"invoices":[],"body":{"invoices":[]}}`},
+		{name: "unrecognized body wrapper", body: `{"body":{"records":[]}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewHandler(&fakeListRepository{}, nil)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/invoice.bulk-create", strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+		})
 	}
 }
 
@@ -146,4 +337,11 @@ func TestListInvoicesReturnsInternalError(t *testing.T) {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func TestGmailThreadURLPathEscapesThreadID(t *testing.T) {
+	got := gmailThreadURL("thread/123")
+	if got != "https://mail.google.com/mail/u/0/#all/thread%2F123" {
+		t.Fatalf("Gmail URL = %q", got)
+	}
 }

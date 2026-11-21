@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -16,9 +17,11 @@ type ListRepository interface {
 type Repository interface {
 	ListRepository
 	GetInvoice(context.Context, int64) (InvoiceDetailResponse, error)
+	CreateInvoice(context.Context, CreateInvoiceRequest) (CreateInvoiceResponse, error)
 }
 
 var ErrInvoiceNotFound = errors.New("invoice not found")
+var ErrEmailAlreadyExists = errors.New("email already exists without an invoice")
 
 type SQLRepository struct {
 	db *sql.DB
@@ -186,6 +189,10 @@ func (r *SQLRepository) GetInvoice(ctx context.Context, id int64) (InvoiceDetail
 		result.Extraction.ResponseCount = &count
 	}
 	result.Email.ThreadID = nullableString(threadID)
+	if threadID.Valid && threadID.String != "" {
+		gmailURL := gmailThreadURL(threadID.String)
+		result.Email.GmailURL = &gmailURL
+	}
 	result.Email.Subject = nullableString(subject)
 	result.Email.Sender = nullableString(sender)
 	result.Email.Recipient = nullableString(recipient)
@@ -199,6 +206,160 @@ func (r *SQLRepository) GetInvoice(ctx context.Context, id int64) (InvoiceDetail
 		return InvoiceDetailResponse{}, err
 	}
 	return result, nil
+}
+
+func (r *SQLRepository) CreateInvoice(ctx context.Context, request CreateInvoiceRequest) (CreateInvoiceResponse, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CreateInvoiceResponse{}, fmt.Errorf("begin invoice transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var emailID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO emails (gmail_id, thread_id, subject, sender, recipient, email_date, body)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (gmail_id) DO NOTHING
+		RETURNING id`,
+		request.Email.GmailID,
+		request.Email.ThreadID,
+		request.Email.Subject,
+		request.Email.Sender,
+		request.Email.Recipient,
+		request.Email.EmailDate,
+		request.Email.Body,
+	).Scan(&emailID)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRowContext(ctx, `
+			SELECT id
+			FROM emails
+			WHERE gmail_id = $1
+			FOR UPDATE`, request.Email.GmailID).Scan(&emailID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return CreateInvoiceResponse{}, ErrEmailAlreadyExists
+		}
+		if err != nil {
+			return CreateInvoiceResponse{}, fmt.Errorf("lock existing email: %w", err)
+		}
+	} else if err != nil {
+		return CreateInvoiceResponse{}, fmt.Errorf("insert email: %w", err)
+	}
+
+	var existingInvoiceID int64
+	invoiceNumber := ""
+	if request.Invoice.InvoiceNumber != nil {
+		invoiceNumber = strings.TrimSpace(*request.Invoice.InvoiceNumber)
+	}
+	if invoiceNumber != "" {
+		err = tx.QueryRowContext(ctx, `
+			SELECT i.id
+			FROM invoices i
+			JOIN extraction_runs er ON er.id = i.extraction_id
+			WHERE er.email_id = $1 AND BTRIM(i.invoice_number) = $2
+			ORDER BY i.id
+			LIMIT 1`, emailID, invoiceNumber).Scan(&existingInvoiceID)
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			SELECT i.id
+			FROM invoices i
+			JOIN extraction_runs er ON er.id = i.extraction_id
+			WHERE er.email_id = $1
+			ORDER BY i.id
+			LIMIT 1`, emailID).Scan(&existingInvoiceID)
+	}
+	if err == nil {
+		if err := tx.Commit(); err != nil {
+			return CreateInvoiceResponse{}, fmt.Errorf("commit duplicate invoice lookup: %w", err)
+		}
+		return CreateInvoiceResponse{
+			Success:       true,
+			InvoiceID:     existingInvoiceID,
+			Message:       "Invoice already exists.",
+			AlreadyExists: true,
+		}, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return CreateInvoiceResponse{}, fmt.Errorf("find existing invoice by email and number: %w", err)
+	}
+
+	extraction := request.Extraction
+	var extractionCreatedAt any
+	if len(extraction.CreatedAt) > 0 {
+		extractionCreatedAt = string(extraction.CreatedAt)
+	}
+	var extractionID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO extraction_runs (
+			email_id, channel, model, created_at, done, done_reason, response_count
+		)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+		RETURNING id`,
+		emailID,
+		extraction.Channel,
+		extraction.Model,
+		extractionCreatedAt,
+		extraction.Done,
+		extraction.DoneReason,
+		extraction.ResponseCount,
+	).Scan(&extractionID)
+	if err != nil {
+		return CreateInvoiceResponse{}, fmt.Errorf("insert extraction run: %w", err)
+	}
+
+	invoice := request.Invoice
+	var invoiceID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO invoices (
+			extraction_id, is_invoice, reason, vendor_name, invoice_number,
+			invoice_date, po_number, due_date, bill_to, currency, subtotal,
+			tax_amount, grand_total, notes
+		)
+		VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8::date, $9, $10, $11, $12, $13, $14)
+		RETURNING id`,
+		extractionID,
+		invoice.IsInvoice,
+		invoice.Reason,
+		invoice.VendorName,
+		invoice.InvoiceNumber,
+		invoice.InvoiceDate,
+		invoice.PONumber,
+		invoice.DueDate,
+		invoice.BillTo,
+		invoice.Currency,
+		invoice.Subtotal,
+		invoice.TaxAmount,
+		invoice.GrandTotal,
+		invoice.Notes,
+	).Scan(&invoiceID)
+	if err != nil {
+		return CreateInvoiceResponse{}, fmt.Errorf("insert invoice: %w", err)
+	}
+
+	for _, item := range *request.LineItems {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO invoice_line_items (
+				invoice_id, description, quantity, unit, unit_price, line_total
+			)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			invoiceID,
+			item.Description,
+			item.Quantity,
+			item.Unit,
+			item.UnitPrice,
+			item.LineTotal,
+		); err != nil {
+			return CreateInvoiceResponse{}, fmt.Errorf("insert invoice line item: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return CreateInvoiceResponse{}, fmt.Errorf("commit invoice transaction: %w", err)
+	}
+	return CreateInvoiceResponse{
+		Success:   true,
+		InvoiceID: invoiceID,
+		Message:   "Invoice created.",
+	}, nil
 }
 
 func (r *SQLRepository) listLineItems(ctx context.Context, invoiceID int64) ([]LineItem, error) {
@@ -276,4 +437,8 @@ func nullableString(value sql.NullString) *string {
 		return nil
 	}
 	return &value.String
+}
+
+func gmailThreadURL(threadID string) string {
+	return "https://mail.google.com/mail/u/0/#all/" + url.PathEscape(threadID)
 }
