@@ -1,6 +1,17 @@
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8081/api/v1";
 
+const apiHeaders = new URL(API_BASE_URL).hostname.endsWith(".ngrok-free.app")
+  ? { "ngrok-skip-browser-warning": "true" }
+  : {};
+
+function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: { ...apiHeaders, ...options.headers },
+  });
+}
+
 async function parseError(response) {
   try {
     const body = await response.json();
@@ -18,14 +29,14 @@ export async function listInvoices(filters = {}) {
     }
   });
 
-  const response = await fetch(`${API_BASE_URL}/invoice.list?${params}`);
+  const response = await apiFetch(`${API_BASE_URL}/invoice.list?${params}`);
   if (!response.ok) throw new Error(await parseError(response));
   return response.json();
 }
 
 export async function getInvoice(id) {
   const params = new URLSearchParams({ id: String(id) });
-  const response = await fetch(`${API_BASE_URL}/invoice.get?${params}`);
+  const response = await apiFetch(`${API_BASE_URL}/invoice.get?${params}`);
   if (!response.ok) throw new Error(await parseError(response));
   return response.json();
 }
@@ -36,7 +47,7 @@ export async function generateReport({ file, fromDate, toDate }) {
   if (fromDate) formData.append("from_date", fromDate);
   if (toDate) formData.append("to_date", toDate);
 
-  const response = await fetch(`${API_BASE_URL}/report.gen`, {
+  const response = await apiFetch(`${API_BASE_URL}/report.gen`, {
     method: "POST",
     body: formData,
   });
