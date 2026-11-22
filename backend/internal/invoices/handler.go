@@ -273,15 +273,19 @@ func parseListFilters(r *http.Request) (ListFilters, error) {
 	}
 
 	filters := ListFilters{
-		VendorName:    strings.TrimSpace(query.Get("vendor_name")),
-		PONumber:      strings.TrimSpace(query.Get("po_number")),
-		InvoiceNumber: strings.TrimSpace(query.Get("invoice_number")),
-		FromDate:      query.Get("from_date"),
-		ToDate:        query.Get("to_date"),
-		Page:          page,
-		Limit:         limit,
+		VendorName:       strings.TrimSpace(query.Get("vendor_name")),
+		PONumber:         strings.TrimSpace(query.Get("po_number")),
+		InvoiceNumber:    strings.TrimSpace(query.Get("invoice_number")),
+		ProcessingStatus: strings.TrimSpace(query.Get("processing_status")),
+		FromDate:         query.Get("from_date"),
+		ToDate:           query.Get("to_date"),
+		Page:             page,
+		Limit:            limit,
 	}
 
+	if filters.ProcessingStatus != "" && !isValidProcessingStatus(filters.ProcessingStatus) {
+		return ListFilters{}, errInvalidProcessingStatus
+	}
 	if query.Has("is_invoice") {
 		value, err := strconv.ParseBool(query.Get("is_invoice"))
 		if err != nil {
@@ -332,10 +336,11 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 var (
-	errInvalidPagination = &queryError{message: "page must be a positive integer and limit must be between 1 and 100."}
-	errInvalidBoolean    = &queryError{message: "is_invoice must be true or false."}
-	errInvalidDate       = &queryError{message: "from_date and to_date must be valid dates in YYYY-MM-DD format."}
-	errInvalidDateRange  = &queryError{message: "from_date must not be later than to_date."}
+	errInvalidPagination       = &queryError{message: "page must be a positive integer and limit must be between 1 and 100."}
+	errInvalidBoolean          = &queryError{message: "is_invoice must be true or false."}
+	errInvalidDate             = &queryError{message: "from_date and to_date must be valid dates in YYYY-MM-DD format."}
+	errInvalidDateRange        = &queryError{message: "from_date must not be later than to_date."}
+	errInvalidProcessingStatus = &queryError{message: "processing_status must be a supported status value."}
 )
 
 type queryError struct {

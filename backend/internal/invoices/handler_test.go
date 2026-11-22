@@ -49,7 +49,7 @@ func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
 	}
 	handler := NewHandler(repository, slog.New(slog.NewTextHandler(&strings.Builder{}, nil)))
 	request := httptest.NewRequest(http.MethodGet,
-		"/api/v1/invoice.list?vendor_name=Acme&po_number=PO-1&invoice_number=INV-1&is_invoice=true&from_date=2026-01-01&to_date=2026-01-31&page=2&limit=5",
+		"/api/v1/invoice.list?vendor_name=Acme&po_number=PO-1&invoice_number=INV-1&is_invoice=true&processing_status=awaiting_po&from_date=2026-01-01&to_date=2026-01-31&page=2&limit=5",
 		nil)
 	response := httptest.NewRecorder()
 
@@ -60,7 +60,8 @@ func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
 	}
 	if repository.filters.VendorName != "Acme" || repository.filters.PONumber != "PO-1" ||
 		repository.filters.InvoiceNumber != "INV-1" || repository.filters.IsInvoice == nil ||
-		!(*repository.filters.IsInvoice) || repository.filters.Page != 2 || repository.filters.Limit != 5 {
+		!(*repository.filters.IsInvoice) || repository.filters.ProcessingStatus != "awaiting_po" ||
+		repository.filters.Page != 2 || repository.filters.Limit != 5 {
 		t.Fatalf("unexpected repository filters: %+v", repository.filters)
 	}
 
@@ -315,6 +316,7 @@ func TestListInvoicesRejectsInvalidQuery(t *testing.T) {
 		{name: "invalid page", path: "/api/v1/invoice.list?page=0"},
 		{name: "limit too high", path: "/api/v1/invoice.list?limit=101"},
 		{name: "invalid boolean", path: "/api/v1/invoice.list?is_invoice=yes"},
+		{name: "invalid processing status", path: "/api/v1/invoice.list?processing_status=unknown"},
 		{name: "invalid date", path: "/api/v1/invoice.list?from_date=not-a-date"},
 		{name: "reversed dates", path: "/api/v1/invoice.list?from_date=2026-02-01&to_date=2026-01-01"},
 	}

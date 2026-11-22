@@ -21,9 +21,10 @@ const demoInvoices = [
 ];
 
 function processingStatusLabel(status) {
+  if (!status) return "Status unavailable";
   return Object.hasOwn(processingStatusLabels, status)
     ? processingStatusLabels[status]
-    : "Unknown";
+    : "Unrecognized status";
 }
 
 function processingStatusClass(status) {
@@ -87,6 +88,18 @@ function invoicesPage() {
         <label>Vendor<input id="vendor_name" type="search" placeholder="Search vendor"></label>
         <label>Invoice no.<input id="invoice_number" type="search" placeholder="Invoice number"></label>
         <label>PO no.<input id="po_number" type="search" placeholder="Purchase order"></label>
+        <label>Processing status
+          <select id="processing_status">
+            <option value="">All statuses</option>
+            <option value="awaiting_po">Awaiting PO</option>
+            <option value="processing">Verifying PO</option>
+            <option value="verified">Verified</option>
+            <option value="mismatch">PO mismatch</option>
+            <option value="needs_review">Needs review</option>
+            <option value="error">Verification error</option>
+            <option value="not_applicable">Not applicable</option>
+          </select>
+        </label>
         <label>From<input id="from_date" type="date"></label>
         <label>To<input id="to_date" type="date"></label>
         <button id="apply-filters" class="primary">Filter</button>
@@ -96,7 +109,7 @@ function invoicesPage() {
         <div id="table-status" class="table-status">Loading invoices…</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Invoice</th><th>Vendor</th><th>Invoice date</th><th>PO number</th><th>Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Invoice</th><th>Vendor</th><th>Invoice date</th><th>PO number</th><th>Amount</th><th>Processing status</th></tr></thead>
             <tbody id="invoice-table"></tbody>
           </table>
         </div>
@@ -125,6 +138,7 @@ function invoicesPage() {
       vendor_name: document.querySelector("#vendor_name").value,
       invoice_number: document.querySelector("#invoice_number").value,
       po_number: document.querySelector("#po_number").value,
+      processing_status: document.querySelector("#processing_status").value,
       from_date: document.querySelector("#from_date").value,
       to_date: document.querySelector("#to_date").value,
       page: state.page,
@@ -137,7 +151,9 @@ function invoicesPage() {
       render(data);
     } catch (error) {
       state.usingDemo = true;
-      render({ total: demoInvoices.length, page: 1, limit: 20, invoices: demoInvoices }, error.message);
+      const demoRows = demoInvoices.filter((invoice) =>
+        !filters.processing_status || invoice.processing_status === filters.processing_status);
+      render({ total: demoRows.length, page: 1, limit: 20, invoices: demoRows }, error.message);
     }
   }
 

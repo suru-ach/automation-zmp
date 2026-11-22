@@ -372,12 +372,12 @@ func (r *SQLRepository) CreateInvoice(ctx context.Context, request CreateInvoice
 
 func initialProcessingStatus(invoice *CreateInvoiceInput) string {
 	if invoice.IsInvoice != nil && !*invoice.IsInvoice {
-		return "not_applicable"
+		return ProcessingStatusNotApplicable
 	}
 	if invoice.PONumber == nil || strings.TrimSpace(*invoice.PONumber) == "" {
-		return "not_applicable"
+		return ProcessingStatusNotApplicable
 	}
-	return "awaiting_po"
+	return ProcessingStatusAwaitingPO
 }
 
 func (r *SQLRepository) listLineItems(ctx context.Context, invoiceID int64) ([]LineItem, error) {
@@ -419,8 +419,8 @@ func (r *SQLRepository) listLineItems(ctx context.Context, invoiceID int64) ([]L
 }
 
 func buildWhere(filters ListFilters) (string, []any) {
-	conditions := make([]string, 0, 6)
-	args := make([]any, 0, 6)
+	conditions := make([]string, 0, 7)
+	args := make([]any, 0, 7)
 	add := func(condition string, value any) {
 		args = append(args, value)
 		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
@@ -437,6 +437,9 @@ func buildWhere(filters ListFilters) (string, []any) {
 	}
 	if filters.IsInvoice != nil {
 		add("i.is_invoice = $%d", *filters.IsInvoice)
+	}
+	if filters.ProcessingStatus != "" {
+		add("i.processing_status = $%d", filters.ProcessingStatus)
 	}
 	if filters.FromDate != "" {
 		add("i.invoice_date >= $%d::date", filters.FromDate)

@@ -43,3 +43,17 @@ func TestInitialProcessingStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildWhereFiltersByProcessingStatus(t *testing.T) {
+	where, args := buildWhere(ListFilters{
+		VendorName:       "Acme",
+		ProcessingStatus: ProcessingStatusVerified,
+	})
+
+	if where != " WHERE i.vendor_name ILIKE $1 AND i.processing_status = $2" {
+		t.Fatalf("where = %q", where)
+	}
+	if len(args) != 2 || args[0] != "%Acme%" || args[1] != ProcessingStatusVerified {
+		t.Fatalf("args = %#v", args)
+	}
+}

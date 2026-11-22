@@ -4,6 +4,10 @@ const HOST = "127.0.0.1";
 const PORT = 8081;
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 let nextId = 1043;
+const processingStatuses = new Set([
+  "awaiting_po", "processing", "verified", "mismatch",
+  "needs_review", "error", "not_applicable",
+]);
 
 const invoices = [
   {
@@ -154,6 +158,13 @@ function filterInvoices(searchParams) {
   const isInvoice = searchParams.get("is_invoice");
   if (isInvoice === "true" || isInvoice === "false") {
     result = result.filter((invoice) => invoice.is_invoice === (isInvoice === "true"));
+  }
+  const processingStatus = searchParams.get("processing_status");
+  if (processingStatus) {
+    if (!processingStatuses.has(processingStatus)) {
+      return { error: "processing_status must be a supported status value." };
+    }
+    result = result.filter((invoice) => invoice.processing_status === processingStatus);
   }
   const fromDate = searchParams.get("from_date");
   const toDate = searchParams.get("to_date");

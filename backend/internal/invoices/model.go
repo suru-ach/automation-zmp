@@ -5,15 +5,38 @@ import (
 	"time"
 )
 
+const (
+	ProcessingStatusAwaitingPO    = "awaiting_po"
+	ProcessingStatusProcessing    = "processing"
+	ProcessingStatusVerified      = "verified"
+	ProcessingStatusMismatch      = "mismatch"
+	ProcessingStatusNeedsReview   = "needs_review"
+	ProcessingStatusError         = "error"
+	ProcessingStatusNotApplicable = "not_applicable"
+)
+
+func isValidProcessingStatus(status string) bool {
+	switch status {
+	case ProcessingStatusAwaitingPO, ProcessingStatusProcessing,
+		ProcessingStatusVerified, ProcessingStatusMismatch,
+		ProcessingStatusNeedsReview, ProcessingStatusError,
+		ProcessingStatusNotApplicable:
+		return true
+	default:
+		return false
+	}
+}
+
 type ListFilters struct {
-	VendorName    string
-	PONumber      string
-	InvoiceNumber string
-	IsInvoice     *bool
-	FromDate      string
-	ToDate        string
-	Page          int
-	Limit         int
+	VendorName       string
+	PONumber         string
+	InvoiceNumber    string
+	IsInvoice        *bool
+	ProcessingStatus string
+	FromDate         string
+	ToDate           string
+	Page             int
+	Limit            int
 }
 
 type InvoiceSummary struct {
