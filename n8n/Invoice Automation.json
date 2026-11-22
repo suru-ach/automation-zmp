@@ -1,0 +1,1137 @@
+{
+  "name": "Invoice Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 1,
+        "simple": false,
+        "filters": {
+          "q": "has:attachment filename:pdf"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        160,
+        -352
+      ],
+      "id": "c621bdd1-d4d1-4f2f-b8d4-f6e263d658a8",
+      "name": "Get many messages",
+      "webhookId": "f3d3ecec-9642-4aae-92bf-978aa3d4218e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "F46e2Fd12MIFN4ad",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst results = [];\n\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  for (const [key, attachment] of Object.entries(item.binary)) {\n    const mimeType = attachment.mimeType || \"\";\n\n    if (mimeType !== \"application/pdf\") continue;\n\n    results.push({\n  json: {\n    ...item.json,\n    attachmentName: attachment.fileName || key,\n    attachmentId: results.length,\n  },\n  binary: {\n    data: attachment,\n  },\n});\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -352
+      ],
+      "id": "f91cd41b-fcba-4a32-a9da-6256c5cc1a0e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        608,
+        -352
+      ],
+      "id": "a0b6bfbb-fdcf-41d9-b4e3-c8f9d1ce6da8",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "9ab77d70-4606-4a03-81fb-85c9202f7ec3",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2307008e-454b-4a1f-9161-92a3a09430d4",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        832,
+        -352
+      ],
+      "id": "bb155b7b-b18b-4fb1-a219-b7fe7919c27b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "qwen2.5vl:7b",
+          "mode": "list",
+          "cachedResultName": "qwen2.5vl:7b"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=\nExtract invoice details from the text below.\n\nReturn valid JSON only with:\nvendor_name, invoice_number, invoice_date, po_number, due_date, currency, subtotal, tax_amount, grand_total, line_items (description, quantity, unit_price, total).\n\nUse null for missing fields. Do not guess or calculate values.\n\nInvoice:\n{{ $json.text }}\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        -448
+      ],
+      "id": "fed6e650-0ea0-4c2c-b636-f544cf406fa8",
+      "name": "Message a model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "pwslOjB0ZBdePvae",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/convert",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "value": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1120,
+        -256
+      ],
+      "id": "195c0158-023b-4a16-a0d9-991d6737ae31",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 1,
+        "simple": false,
+        "filters": {
+          "q": "has:attachment filename:pdf"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        256
+      ],
+      "id": "0826ea0d-fa91-41c9-a50f-a720e35659e0",
+      "name": "Get many messages1",
+      "webhookId": "f3d3ecec-9642-4aae-92bf-978aa3d4218e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "F46e2Fd12MIFN4ad",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst results = [];\n\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  for (const [key, attachment] of Object.entries(item.binary)) {\n    const mimeType = attachment.mimeType || \"\";\n\n    if (mimeType !== \"application/pdf\") continue;\n\n    results.push({\n  json: {\n    ...item.json,\n    attachmentName: attachment.fileName || key,\n    attachmentId: results.length,\n  },\n  binary: {\n    data: attachment,\n  },\n});\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        512
+      ],
+      "id": "9617894f-6802-4218-b6d5-75db670d4158",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        608,
+        448
+      ],
+      "id": "ddf90a75-87ed-4556-b13a-67a96f1d0f1f",
+      "name": "Extract from File1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "203bd31b-f8aa-4ae9-9402-df43ce8beafe",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        832,
+        448
+      ],
+      "id": "fcf8f349-aa04-4bc1-9279-2e51f194edb1",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a5d0-2401-4900-1cd0-e0dd-2152-5d0d-56ba-2179.ngrok-free.app/api/v1/convert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        608
+      ],
+      "id": "863f3114-95ea-49b4-9660-97603450ef1e",
+      "name": "HTTP Request2"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1056,
+        608
+      ],
+      "id": "13fb8856-a10b-4f59-9d9b-8166d8a64b3c",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst combinedText = items\n  .map(item => item.json.text)\n  .filter(text => text && text.trim())\n  .join(\"\\n\\n--- NEXT DOCUMENT ---\\n\\n\");\n\nreturn [\n  {\n    json: {\n      text: combinedText,\n      document_count: items.length\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        400
+      ],
+      "id": "fe4868d0-14c2-4d5a-bbf5-716d0d78d5b1",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n  const images = item.json.images || [];\n\n  images.forEach((image, index) => {\n    results.push({\n      json: {\n        filename: item.json.filename,\n        page_number: index + 1,\n        imageBase64: image\n      }\n    });\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        608
+      ],
+      "id": "516ec41f-c7f5-4ca1-b598-d745bd6e9fce",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    model: \"qwen2.5vl:7b\",\n    stream: false,\n    format: \"json\",\n    messages: [\n      {\n        role: \"user\",\n        content: `Extract every invoice visible in the supplied image.\n\nThe image may contain one or multiple invoices.\nExtract each invoice independently. Never merge details from different invoices.\n\nFirst determine whether the image contains a readable invoice.\n\nIf the image is blank, empty, corrupted, unreadable, or does not contain an invoice, return an empty invoices array.\n\nSTRICT OUTPUT FORMAT:\n\n{\n  \"invoices\": [\n    {\n      \"is_invoice\": true,\n      \"reason\": null,\n      \"vendor_name\": null,\n      \"invoice_number\": null,\n      \"invoice_date\": null,\n      \"po_number\": null,\n      \"due_date\": null,\n      \"currency\": null,\n      \"subtotal\": null,\n      \"tax_amount\": null,\n      \"grand_total\": null,\n      \"line_items\": [\n        {\n          \"description\": null,\n          \"quantity\": null,\n          \"unit\": null,\n          \"unit_price\": null,\n          \"line_total\": null\n        }\n      ]\n    }\n  ]\n}\n\nRULES:\n- Always return an object containing the \"invoices\" array.\n- Every invoice must be a separate element in the array.\n- If only one invoice exists, return an array containing one invoice.\n- If multiple invoices exist, return one element per invoice.\n- Never combine line items or invoice details between invoices.\n- Include every schema field for every invoice.\n- Use null for missing or unreadable values.\n- If the image does not contain a readable invoice, return an empty invoices array.\n- Do not invent, guess, infer, or calculate values.\n- Extract only information visibly present in the image.\n- Preserve monetary values as strings.\n- Preserve quantity and unit separately.\n- Return valid JSON only.\n- Do not include Markdown, code fences, or explanations.`,\n        images: [$json.imageBase64]\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1856,
+        608
+      ],
+      "id": "85715284-3382-4d26-8fdc-a4d9f0f45c76",
+      "name": "Image Processing HTTP call"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1568,
+        224
+      ],
+      "id": "12dedc5d-8b4f-4f74-b0c1-c2acbc4d90bc",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2208,
+        1008
+      ],
+      "id": "1523415e-461d-44ae-83dd-66f42349ccba",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst email = items.find(item => item.json.id && item.json.threadId)?.json;\nconst modelResponse = items.find(item => item.json.message?.content)?.json;\n\nif (!email) {\n  throw new Error(\"Missing email metadata\");\n}\nif (!modelResponse) {\n  console.log(\"Missing invoice extraction\");\n  return [];\n}\n\nconst extracted = JSON.parse(modelResponse.message.content);\n\nreturn [\n  {\n    json: {\n      channel: \"pdf\",\n\n      email: {\n        gmail_id: email.id,\n        thread_id: email.threadId,\n        message_id: email.messageId,\n        subject: email.subject,\n        date: email.date,\n\n        from: email.from,\n        to: email.to,\n\n        body: {\n          text: email.text,\n          html: email.html,\n          text_as_html: email.textAsHtml\n        },\n\n        labels: email.labelIds,\n\n        headers: email.headers\n      },\n\n      extraction: {\n        model: modelResponse.model,\n        created_at: modelResponse.created_at,\n        done: modelResponse.done,\n        done_reason: modelResponse.done_reason\n      },\n\n      invoices: extracted.invoices\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        304
+      ],
+      "id": "e5a30168-7c4f-4674-90dc-7adea4e59bdc",
+      "name": "Code in JavaScript6"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Find Gmail metadata\nconst email = items.find(item =>\n  item.json.id && item.json.threadId\n)?.json;\n\n// Find all Ollama responses\nconst modelResponses = items.filter(item =>\n  item.json.message?.content\n);\n\nif (!email) {\n  throw new Error(\"Gmail metadata not found\");\n}\n\nif (modelResponses.length === 0) {\n  console.log(\"No invoice extraction responses found\");\n  return [];\n}\n\n// Parse and combine invoices from every response\nconst invoices = [];\n\nfor (const response of modelResponses) {\n  const parsed = JSON.parse(response.json.message.content);\n\n  if (Array.isArray(parsed.invoices)) {\n    invoices.push(...parsed.invoices);\n  }\n}\n\nreturn [\n  {\n    json: {\n      channel: \"img\",\n\n      email: {\n        gmail_id: email.id,\n        thread_id: email.threadId,\n        message_id: email.messageId,\n        subject: email.subject,\n        date: email.date,\n        from: email.from,\n        to: email.to,\n\n        body: {\n          text: email.text,\n          html: email.html,\n          text_as_html: email.textAsHtml\n        },\n\n        labels: email.labelIds,\n        headers: email.headers\n      },\n\n      extraction: {\n        model: modelResponses[0].json.model,\n        response_count: modelResponses.length,\n        created_at: modelResponses.map(\n          response => response.json.created_at\n        )\n      },\n\n      invoices\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2656,
+        1008
+      ],
+      "id": "5e7747de-2cf8-45cd-a9e0-8bd04931183f",
+      "name": "Code in JavaScript7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    model: \"qwen2.5vl:7b\",\n    stream: false,\n    format: \"json\",\n    messages: [\n      {\n        role: \"user\",\n        content: `Extract every invoice from the supplied text.\n\nThe text may contain multiple invoices separated by \"--- NEXT DOCUMENT ---\".\nExtract each invoice independently. Never merge details from different invoices.\n\nSTRICT OUTPUT FORMAT:\n\n{\n  \"invoices\": [\n    {\n      \"is_invoice\": true,\n      \"reason\": null,\n      \"vendor_name\": null,\n      \"invoice_number\": null,\n      \"invoice_date\": null,\n      \"po_number\": null,\n      \"due_date\": null,\n      \"currency\": null,\n      \"subtotal\": null,\n      \"tax_amount\": null,\n      \"grand_total\": null,\n      \"line_items\": [\n        {\n          \"description\": null,\n          \"quantity\": null,\n          \"unit\": null,\n          \"unit_price\": null,\n          \"line_total\": null\n        }\n      ]\n    }\n  ]\n}\n\nRULES:\n- Always return an object containing the \"invoices\" array.\n- Every invoice must be a separate element in the array.\n- If only one invoice exists, return an array containing one invoice.\n- If multiple invoices exist, return one element per invoice.\n- Never combine line items or invoice details between invoices.\n- Include every schema field for every invoice.\n- Use null for missing or unreadable values.\n- If the text does not contain a readable invoice, return an empty invoices array.\n- Do not invent, guess, infer, or calculate values.\n- Preserve monetary values as strings.\n- Preserve quantity and unit separately.\n- Return valid JSON only.\n- Do not include Markdown, code fences, or explanations.\n\nInvoice text:\n${$json.text}`\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1280,
+        400
+      ],
+      "id": "db029323-46d1-413a-b0c8-429f063dc865",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a5d0-2401-4900-1cd0-e0dd-2152-5d0d-56ba-2179.ngrok-free.app/api/v1/invoice.bulk-create",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  invoices: $json.invoices.map(invoice => ({\n    email: {\n      gmail_id: $json.email.gmail_id,\n      thread_id: $json.email.thread_id,\n      subject: $json.email.subject,\n      sender: $json.email.from?.value?.[0]?.address,\n      recipient: $json.email.to?.value?.[0]?.address,\n      email_date: $json.email.date\n    },\n    extraction: {\n  ...$json.extraction,\n  channel: $json.channel\n    },\n    invoice: {\n      is_invoice: invoice.is_invoice,\n      reason: invoice.reason,\n      vendor_name: invoice.vendor_name,\n      invoice_number: invoice.invoice_number,\n      invoice_date: invoice.invoice_date,\n      po_number: invoice.po_number,\n      due_date: invoice.due_date,\n      bill_to: invoice.bill_to,\n      currency: invoice.currency,\n      subtotal: Number(String(invoice.subtotal ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      tax_amount: Number(String(invoice.tax_amount ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      grand_total: Number(String(invoice.grand_total ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      notes: invoice.notes\n    },\n    line_items: (invoice.line_items ?? []).map(line => ({\n      description: line.description,\n      quantity: Number(line.quantity) || 0,\n      unit: line.unit,\n      unit_price: Number(line.unit_price) || 0,\n      line_total: Number(line.line_total) || 0\n    }))\n  }))\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2832,
+        1008
+      ],
+      "id": "976343c6-fa4a-40c0-9773-5f02b7704849",
+      "name": "HTTP Request3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a5d0-2401-4900-1cd0-e0dd-2152-5d0d-56ba-2179.ngrok-free.app/api/v1/invoice.bulk-create",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  invoices: $json.invoices.map(invoice => ({\n    email: {\n      gmail_id: $json.email.gmail_id,\n      thread_id: $json.email.thread_id,\n      subject: $json.email.subject,\n      sender: $json.email.from?.value?.[0]?.address,\n      recipient: $json.email.to?.value?.[0]?.address,\n      email_date: $json.email.date\n    },\nextraction: {\n  ...$json.extraction,\n  channel: $json.channel\n},\ninvoice: {\n      is_invoice: invoice.is_invoice,\n      reason: invoice.reason,\n      vendor_name: invoice.vendor_name,\n      invoice_number: invoice.invoice_number,\n      invoice_date: invoice.invoice_date,\n      po_number: invoice.po_number,\n      due_date: invoice.due_date,\n      bill_to: invoice.bill_to,\n      currency: invoice.currency,\n      subtotal: Number(String(invoice.subtotal ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      tax_amount: Number(String(invoice.tax_amount ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      grand_total: Number(String(invoice.grand_total ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      notes: invoice.notes\n    },\n    line_items: (invoice.line_items ?? []).map(line => ({\n      description: line.description,\n      quantity: Number(line.quantity) || 0,\n      unit: line.unit,\n      unit_price: Number(line.unit_price) || 0,\n      line_total: Number(line.line_total) || 0\n    }))\n  }))\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2256,
+        304
+      ],
+      "id": "c90cb3ae-6fdf-4ec7-9c8d-8e6ee56d3a84",
+      "name": "HTTP Request4"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst results = [];\n\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  for (const [key, attachment] of Object.entries(item.binary)) {\n    const mimeType = attachment.mimeType || \"\";\n\n    if (mimeType !== \"application/pdf\") continue;\n\n    results.push({\n  json: {\n    ...item.json,\n    attachmentName: attachment.fileName || key,\n    attachmentId: results.length,\n  },\n  binary: {\n    data: attachment,\n  },\n});\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        1504
+      ],
+      "id": "a5a156f6-c810-4222-9637-29e5fdc46a06",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        512,
+        1440
+      ],
+      "id": "ce8b6cbf-4f1d-44d4-83cf-4a6a52977edc",
+      "name": "Extract from File2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "203bd31b-f8aa-4ae9-9402-df43ce8beafe",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        736,
+        1440
+      ],
+      "id": "019bca00-934b-4cda-8e32-2510b62d8294",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a5d0-2401-4900-1cd0-e0dd-2152-5d0d-56ba-2179.ngrok-free.app/api/v1/convert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1248,
+        1600
+      ],
+      "id": "3c87ca07-2959-41a2-a5e0-d7985aa09858",
+      "name": "HTTP Request5"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        960,
+        1600
+      ],
+      "id": "219d67f7-b1a8-4448-9756-353153e76536",
+      "name": "Merge3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst combinedText = items\n  .map(item => item.json.text)\n  .filter(text => text && text.trim())\n  .join(\"\\n\\n--- NEXT DOCUMENT ---\\n\\n\");\n\nreturn [\n  {\n    json: {\n      text: combinedText,\n      document_count: items.length\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        1392
+      ],
+      "id": "ccd68d31-84ea-4097-b2ac-03a1b4abd7c1",
+      "name": "Code in JavaScript8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n  const images = item.json.images || [];\n\n  images.forEach((image, index) => {\n    results.push({\n      json: {\n        filename: item.json.filename,\n        page_number: index + 1,\n        imageBase64: image\n      }\n    });\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        1600
+      ],
+      "id": "2b4917a5-35b8-4960-8815-01520d4e9d97",
+      "name": "Code in JavaScript9"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    model: \"qwen2.5vl:7b\",\n    stream: false,\n    format: \"json\",\n    messages: [\n      {\n        role: \"user\",\n        content: `Extract every invoice visible in the supplied image.\n\nThe image may contain one or multiple invoices.\nExtract each invoice independently. Never merge details from different invoices.\n\nFirst determine whether the image contains a readable invoice.\n\nIf the image is blank, empty, corrupted, unreadable, or does not contain an invoice, return an empty invoices array.\n\nSTRICT OUTPUT FORMAT:\n\n{\n  \"invoices\": [\n    {\n      \"is_invoice\": true,\n      \"reason\": null,\n      \"vendor_name\": null,\n      \"invoice_number\": null,\n      \"invoice_date\": null,\n      \"po_number\": null,\n      \"due_date\": null,\n      \"currency\": null,\n      \"subtotal\": null,\n      \"tax_amount\": null,\n      \"grand_total\": null,\n      \"line_items\": [\n        {\n          \"description\": null,\n          \"quantity\": null,\n          \"unit\": null,\n          \"unit_price\": null,\n          \"line_total\": null\n        }\n      ]\n    }\n  ]\n}\n\nRULES:\n- Always return an object containing the \"invoices\" array.\n- Every invoice must be a separate element in the array.\n- If only one invoice exists, return an array containing one invoice.\n- If multiple invoices exist, return one element per invoice.\n- Never combine line items or invoice details between invoices.\n- Include every schema field for every invoice.\n- Use null for missing or unreadable values.\n- If the image does not contain a readable invoice, return an empty invoices array.\n- Do not invent, guess, infer, or calculate values.\n- Extract only information visibly present in the image.\n- Preserve monetary values as strings.\n- Preserve quantity and unit separately.\n- Return valid JSON only.\n- Do not include Markdown, code fences, or explanations.`,\n        images: [$json.imageBase64]\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1760,
+        1600
+      ],
+      "id": "d3079efd-eda9-4bb1-bc54-4b5f68415936",
+      "name": "Image Processing HTTP call1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1472,
+        1216
+      ],
+      "id": "44562e00-5069-4592-8deb-814806020a2d",
+      "name": "Merge4"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2208,
+        1680
+      ],
+      "id": "e08b42a5-88c8-446e-9703-caf337afe4eb",
+      "name": "Merge5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst email = items.find(item => item.json.id && item.json.threadId)?.json;\nconst modelResponse = items.find(item => item.json.message?.content)?.json;\n\nif (!email) {\n  throw new Error(\"Missing email metadata\");\n}\n\nif (!modelResponse) {\n  console.log(\"Missing invoice extraction\");\n  return [];\n}\n\nconst extracted = JSON.parse(modelResponse.message.content);\n\nreturn [\n  {\n    json: {\n      channel: \"pdf\",\n\n      email: {\n        gmail_id: email.id,\n        thread_id: email.threadId,\n        message_id: email.messageId,\n        subject: email.subject,\n        date: email.date,\n\n        from: email.from,\n        to: email.to,\n\n        body: {\n          text: email.text,\n          html: email.html,\n          text_as_html: email.textAsHtml\n        },\n\n        labels: email.labelIds,\n\n        headers: email.headers\n      },\n\n      extraction: {\n        model: modelResponse.model,\n        created_at: modelResponse.created_at,\n        done: modelResponse.done,\n        done_reason: modelResponse.done_reason\n      },\n\n      invoices: extracted.invoices\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        1296
+      ],
+      "id": "958d2b0c-5c03-41b0-97b6-98d643a66f24",
+      "name": "Code in JavaScript10"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Find Gmail metadata\nconst email = items.find(item =>\n  item.json.id && item.json.threadId\n)?.json;\n\n// Find all Ollama responses\nconst modelResponses = items.filter(item =>\n  item.json.message?.content\n);\n\nif (!email) {\n  throw new Error(\"Gmail metadata not found\");\n}\n\nif (modelResponses.length === 0) {\n  console.log(\"No invoice extraction responses found\");\n  return [];\n}\n\n// Parse and combine invoices from every response\nconst invoices = [];\n\nfor (const response of modelResponses) {\n  const parsed = JSON.parse(response.json.message.content);\n\n  if (Array.isArray(parsed.invoices)) {\n    invoices.push(...parsed.invoices);\n  }\n}\n\nreturn [\n  {\n    json: {\n      channel: \"img\",\n\n      email: {\n        gmail_id: email.id,\n        thread_id: email.threadId,\n        message_id: email.messageId,\n        subject: email.subject,\n        date: email.date,\n        from: email.from,\n        to: email.to,\n\n        body: {\n          text: email.text,\n          html: email.html,\n          text_as_html: email.textAsHtml\n        },\n\n        labels: email.labelIds,\n        headers: email.headers\n      },\n\n      extraction: {\n        model: modelResponses[0].json.model,\n        response_count: modelResponses.length,\n        created_at: modelResponses.map(\n          response => response.json.created_at\n        )\n      },\n\n      invoices\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2432,
+        1680
+      ],
+      "id": "26e5fe58-e1f7-4b00-8033-571d54abe661",
+      "name": "Code in JavaScript11"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    model: \"qwen2.5vl:7b\",\n    stream: false,\n    format: \"json\",\n    messages: [\n      {\n        role: \"user\",\n        content: `Extract every invoice from the supplied text.\n\nThe text may contain multiple invoices separated by \"--- NEXT DOCUMENT ---\".\nExtract each invoice independently. Never merge details from different invoices.\n\nSTRICT OUTPUT FORMAT:\n\n{\n  \"invoices\": [\n    {\n      \"is_invoice\": true,\n      \"reason\": null,\n      \"vendor_name\": null,\n      \"invoice_number\": null,\n      \"invoice_date\": null,\n      \"po_number\": null,\n      \"due_date\": null,\n      \"currency\": null,\n      \"subtotal\": null,\n      \"tax_amount\": null,\n      \"grand_total\": null,\n      \"line_items\": [\n        {\n          \"description\": null,\n          \"quantity\": null,\n          \"unit\": null,\n          \"unit_price\": null,\n          \"line_total\": null\n        }\n      ]\n    }\n  ]\n}\n\nRULES:\n- Always return an object containing the \"invoices\" array.\n- Every invoice must be a separate element in the array.\n- If only one invoice exists, return an array containing one invoice.\n- If multiple invoices exist, return one element per invoice.\n- Never combine line items or invoice details between invoices.\n- Include every schema field for every invoice.\n- Use null for missing or unreadable values.\n- If the text does not contain a readable invoice, return an empty invoices array.\n- Do not invent, guess, infer, or calculate values.\n- Preserve monetary values as strings.\n- Preserve quantity and unit separately.\n- Return valid JSON only.\n- Do not include Markdown, code fences, or explanations.\n\nInvoice text:\n${$json.text}`\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1184,
+        1392
+      ],
+      "id": "b48a915d-c327-4a65-8ed5-52c6d13a5540",
+      "name": "HTTP Request6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a5d0-2401-4900-1cd0-e0dd-2152-5d0d-56ba-2179.ngrok-free.app/api/v1/invoice.bulk-create",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  invoices: $json.invoices.map(invoice => ({\n    email: {\n      gmail_id: $json.email.gmail_id,\n      thread_id: $json.email.thread_id,\n      subject: $json.email.subject,\n      sender: $json.email.from?.value?.[0]?.address,\n      recipient: $json.email.to?.value?.[0]?.address,\n      email_date: $json.email.date\n    },\n    extraction: {\n  ...$json.extraction,\n  channel: $json.channel\n    },\n    invoice: {\n      is_invoice: invoice.is_invoice,\n      reason: invoice.reason,\n      vendor_name: invoice.vendor_name,\n      invoice_number: invoice.invoice_number,\n      invoice_date: invoice.invoice_date,\n      po_number: invoice.po_number,\n      due_date: invoice.due_date,\n      bill_to: invoice.bill_to,\n      currency: invoice.currency,\n      subtotal: Number(String(invoice.subtotal ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      tax_amount: Number(String(invoice.tax_amount ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      grand_total: Number(String(invoice.grand_total ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      notes: invoice.notes\n    },\n    line_items: (invoice.line_items ?? []).map(line => ({\n      description: line.description,\n      quantity: Number(line.quantity) || 0,\n      unit: line.unit,\n      unit_price: Number(line.unit_price) || 0,\n      line_total: Number(line.line_total) || 0\n    }))\n  }))\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2608,
+        1680
+      ],
+      "id": "f89aba74-b12b-4db6-93cf-735c20abfb30",
+      "name": "HTTP Request7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a5d0-2401-4900-1cd0-e0dd-2152-5d0d-56ba-2179.ngrok-free.app/api/v1/invoice.bulk-create",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  invoices: $json.invoices.map(invoice => ({\n    email: {\n      gmail_id: $json.email.gmail_id,\n      thread_id: $json.email.thread_id,\n      subject: $json.email.subject,\n      sender: $json.email.from?.value?.[0]?.address,\n      recipient: $json.email.to?.value?.[0]?.address,\n      email_date: $json.email.date\n    },\nextraction: {\n  ...$json.extraction,\n  channel: $json.channel\n},\ninvoice: {\n      is_invoice: invoice.is_invoice,\n      reason: invoice.reason,\n      vendor_name: invoice.vendor_name,\n      invoice_number: invoice.invoice_number,\n      invoice_date: invoice.invoice_date,\n      po_number: invoice.po_number,\n      due_date: invoice.due_date,\n      bill_to: invoice.bill_to,\n      currency: invoice.currency,\n      subtotal: Number(String(invoice.subtotal ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      tax_amount: Number(String(invoice.tax_amount ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      grand_total: Number(String(invoice.grand_total ?? \"\").replace(/[^\\d.-]/g, \"\")) || 0,\n      notes: invoice.notes\n    },\n    line_items: (invoice.line_items ?? []).map(line => ({\n      description: line.description,\n      quantity: Number(line.quantity) || 0,\n      unit: line.unit,\n      unit_price: Number(line.unit_price) || 0,\n      line_total: Number(line.line_total) || 0\n    }))\n  }))\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2160,
+        1296
+      ],
+      "id": "ed115222-0a2c-4ab2-9730-d4c518dbe607",
+      "name": "HTTP Request8"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        16,
+        256
+      ],
+      "id": "940dccbe-e5f8-47d8-96ad-880d430f1702",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Image Processing HTTP call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Processing HTTP call": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript6": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript7": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Extract from File2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Extract from File2": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript8",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request5": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge3": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript8": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript9": {
+      "main": [
+        [
+          {
+            "node": "Image Processing HTTP call1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Processing HTTP call1": {
+      "main": [
+        [
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge5": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript10": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript11": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request6": {
+      "main": [
+        [
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many messages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "3460ceaf-d218-4e4d-a042-5f922918351b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "63ac93848e0fd072e3a36ba3c9f7d5ab73af82cd40898a60d53a71a5abf79583"
+  },
+  "nodeGroups": [],
+  "id": "3PQgKZkHTyiyQKHC",
+  "tags": []
+}
