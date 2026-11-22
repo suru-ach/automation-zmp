@@ -572,6 +572,17 @@ components:
           type: string
         is_invoice:
           type: boolean
+        processing_status:
+          type: string
+          description: Invoice PO-verification workflow status.
+          enum:
+            - awaiting_po
+            - processing
+            - verified
+            - mismatch
+            - needs_review
+            - error
+            - not_applicable
         created_at:
           type: string
           format: date-time

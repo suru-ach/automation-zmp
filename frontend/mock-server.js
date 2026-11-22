@@ -10,7 +10,7 @@ const invoices = [
     id: 1042, vendor_name: "Northwind Supplies", invoice_number: "INV-2026-041",
     invoice_date: "2026-11-18", po_number: "PO-8872", due_date: "2026-12-18",
     grand_total: 12540, subtotal: 10800, tax_amount: 1740, currency: "INR",
-    is_invoice: true, created_at: "2026-11-19T10:24:00Z",
+    is_invoice: true, processing_status: "awaiting_po", created_at: "2026-11-19T10:24:00Z",
     email: {
       gmail_id: "mock-gmail-1042", thread_id: "mock-thread-1042", message_id: "mock-message-1042",
       subject: "Invoice INV-2026-041", sender: "billing@northwind.example",
@@ -24,7 +24,7 @@ const invoices = [
     id: 1041, vendor_name: "Contoso Logistics", invoice_number: "INV-9918",
     invoice_date: "2026-11-16", po_number: "PO-8849", due_date: "2026-12-16",
     grand_total: 8420.5, subtotal: 7136.02, tax_amount: 1284.48, currency: "INR",
-    is_invoice: true, created_at: "2026-11-17T08:15:00Z",
+    is_invoice: true, processing_status: "awaiting_po", created_at: "2026-11-17T08:15:00Z",
     email: {
       gmail_id: "mock-gmail-1041", thread_id: "mock-thread-1041", message_id: "mock-message-1041",
       subject: "November freight", sender: "accounts@contoso.example",
@@ -38,7 +38,7 @@ const invoices = [
     id: 1040, vendor_name: "Fabrikam Office", invoice_number: "INV-4412",
     invoice_date: "2026-11-12", po_number: "", due_date: "2026-12-12",
     grand_total: 2190, subtotal: 1855.93, tax_amount: 334.07, currency: "INR",
-    is_invoice: true, created_at: "2026-11-13T14:02:00Z",
+    is_invoice: true, processing_status: "not_applicable", created_at: "2026-11-13T14:02:00Z",
     email: {
       gmail_id: "mock-gmail-1040", thread_id: "mock-thread-1040", message_id: "mock-message-1040",
       subject: "Invoice INV-4412", sender: "billing@fabrikam.example",
@@ -52,7 +52,7 @@ const invoices = [
     id: 1039, vendor_name: "Adatum Services", invoice_number: "",
     invoice_date: "2026-11-10", po_number: "PO-8791", due_date: "",
     grand_total: 0, subtotal: 0, tax_amount: 0, currency: "INR",
-    is_invoice: false, created_at: "2026-11-11T09:45:00Z",
+    is_invoice: false, processing_status: "not_applicable", created_at: "2026-11-11T09:45:00Z",
     email: {
       gmail_id: "mock-gmail-1039", thread_id: "mock-thread-1039", message_id: "mock-message-1039",
       subject: "Service document", sender: "hello@adatum.example",
@@ -96,8 +96,28 @@ function readBody(request) {
 }
 
 function summary(invoice) {
-  const { id, vendor_name, invoice_number, invoice_date, po_number, grand_total, currency, is_invoice, created_at } = invoice;
-  return { id, vendor_name, invoice_number, invoice_date, po_number, grand_total, currency, is_invoice, created_at };
+  const { id, vendor_name, invoice_number, invoice_date, po_number, grand_total, currency, is_invoice, processing_status, created_at } = invoice;
+  return { id, vendor_name, invoice_number, invoice_date, po_number, grand_total, currency, is_invoice, processing_status, created_at };
+}
+
+function initialProcessingStatus(invoice) {
+  if (invoice.is_invoice === false || !String(invoice.po_number ?? "").trim()) {
+    return "not_applicable";
+  }
+  return "awaiting_po";
+}
+
+function processingStatusLabel(status) {
+  const labels = {
+    awaiting_po: "Awaiting PO",
+    processing: "Verifying PO",
+    verified: "Verified",
+    mismatch: "PO mismatch",
+    needs_review: "Needs review",
+    error: "Verification error",
+    not_applicable: "Not applicable",
+  };
+  return Object.hasOwn(labels, status) ? labels[status] : "Unknown";
 }
 
 function createInvoice(payload) {
@@ -114,6 +134,7 @@ function createInvoice(payload) {
   const invoice = {
     ...payload.invoice,
     id: nextId++,
+    processing_status: initialProcessingStatus(payload.invoice),
     created_at: new Date().toISOString(),
     email: payload.email,
     extraction: payload.extraction,
@@ -186,7 +207,7 @@ function generateCsv(fields) {
     ["Invoice ID", "Vendor", "Invoice Number", "Invoice Date", "PO Number", "Currency", "Total", "Status"].map(csvCell).join(","),
     ...rows.map((invoice) => [
       invoice.id, invoice.vendor_name, invoice.invoice_number, invoice.invoice_date,
-      invoice.po_number, invoice.currency, invoice.grand_total, invoice.is_invoice ? "Verified" : "Review",
+      invoice.po_number, invoice.currency, invoice.grand_total, processingStatusLabel(invoice.processing_status),
     ].map(csvCell).join(",")),
   ];
   return lines.join("\r\n");

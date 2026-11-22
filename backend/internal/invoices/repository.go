@@ -42,7 +42,8 @@ func (r *SQLRepository) ListInvoices(ctx context.Context, filters ListFilters) (
 	queryArgs = append(queryArgs, filters.Limit, (filters.Page-1)*filters.Limit)
 	query := `
 		SELECT i.id, i.vendor_name, i.invoice_number, i.invoice_date,
-		       i.po_number, i.grand_total, i.currency, i.is_invoice, i.created_at
+		       i.po_number, i.grand_total, i.currency, i.is_invoice,
+		       i.processing_status, i.created_at
 		FROM invoices i` + where + `
 		ORDER BY i.created_at DESC NULLS LAST, i.id DESC
 		LIMIT $` + fmt.Sprint(len(queryArgs)-1) + ` OFFSET $` + fmt.Sprint(len(queryArgs))
@@ -76,6 +77,7 @@ func (r *SQLRepository) ListInvoices(ctx context.Context, filters ListFilters) (
 			&grandTotal,
 			&currency,
 			&isInvoice,
+			&invoice.ProcessingStatus,
 			&createdAt,
 		); err != nil {
 			return InvoiceListResponse{}, fmt.Errorf("scan invoice: %w", err)
@@ -110,6 +112,7 @@ func (r *SQLRepository) ListInvoices(ctx context.Context, filters ListFilters) (
 func (r *SQLRepository) GetInvoice(ctx context.Context, id int64) (InvoiceDetailResponse, error) {
 	var result InvoiceDetailResponse
 	var vendorName, invoiceNumber, poNumber, currency sql.NullString
+	var processingStatus string
 	var invoiceDate, createdAt sql.NullTime
 	var grandTotal sql.NullFloat64
 	var isInvoice sql.NullBool
@@ -122,6 +125,7 @@ func (r *SQLRepository) GetInvoice(ctx context.Context, id int64) (InvoiceDetail
 	err := r.db.QueryRowContext(ctx, `
 		SELECT i.id, i.vendor_name, i.invoice_number, i.invoice_date,
 		       i.po_number, i.grand_total, i.currency, i.is_invoice, i.created_at,
+		       i.processing_status,
 		       er.channel, er.model, er.created_at, er.done, er.done_reason, er.response_count,
 		       e.gmail_id, e.thread_id, e.subject, e.sender, e.recipient, e.email_date, e.body
 		FROM invoices i
@@ -138,6 +142,7 @@ func (r *SQLRepository) GetInvoice(ctx context.Context, id int64) (InvoiceDetail
 		&currency,
 		&isInvoice,
 		&createdAt,
+		&processingStatus,
 		&result.Extraction.Channel,
 		&model,
 		&extractionCreatedAt,
@@ -173,6 +178,7 @@ func (r *SQLRepository) GetInvoice(ctx context.Context, id int64) (InvoiceDetail
 	if isInvoice.Valid {
 		result.Invoice.IsInvoice = &isInvoice.Bool
 	}
+	result.Invoice.ProcessingStatus = processingStatus
 	if createdAt.Valid {
 		result.Invoice.CreatedAt = &createdAt.Time
 	}
@@ -283,6 +289,8 @@ func (r *SQLRepository) CreateInvoice(ctx context.Context, request CreateInvoice
 	}
 
 	extraction := request.Extraction
+	invoice := request.Invoice
+	processingStatus := initialProcessingStatus(invoice)
 	var extractionCreatedAt any
 	if len(extraction.CreatedAt) > 0 {
 		extractionCreatedAt = string(extraction.CreatedAt)
@@ -306,18 +314,18 @@ func (r *SQLRepository) CreateInvoice(ctx context.Context, request CreateInvoice
 		return CreateInvoiceResponse{}, fmt.Errorf("insert extraction run: %w", err)
 	}
 
-	invoice := request.Invoice
 	var invoiceID int64
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO invoices (
-			extraction_id, is_invoice, reason, vendor_name, invoice_number,
+			extraction_id, is_invoice, processing_status, reason, vendor_name, invoice_number,
 			invoice_date, po_number, due_date, bill_to, currency, subtotal,
 			tax_amount, grand_total, notes
 		)
-		VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8::date, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9::date, $10, $11, $12, $13, $14, $15)
 		RETURNING id`,
 		extractionID,
 		invoice.IsInvoice,
+		processingStatus,
 		invoice.Reason,
 		invoice.VendorName,
 		invoice.InvoiceNumber,
@@ -360,6 +368,16 @@ func (r *SQLRepository) CreateInvoice(ctx context.Context, request CreateInvoice
 		InvoiceID: invoiceID,
 		Message:   "Invoice created.",
 	}, nil
+}
+
+func initialProcessingStatus(invoice *CreateInvoiceInput) string {
+	if invoice.IsInvoice != nil && !*invoice.IsInvoice {
+		return "not_applicable"
+	}
+	if invoice.PONumber == nil || strings.TrimSpace(*invoice.PONumber) == "" {
+		return "not_applicable"
+	}
+	return "awaiting_po"
 }
 
 func (r *SQLRepository) listLineItems(ctx context.Context, invoiceID int64) ([]LineItem, error) {

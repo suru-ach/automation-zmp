@@ -44,7 +44,7 @@ func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
 	repository := &fakeListRepository{
 		result: InvoiceListResponse{
 			Total: 1, Page: 2, Limit: 5,
-			Invoices: []InvoiceSummary{{ID: 42}},
+			Invoices: []InvoiceSummary{{ID: 42, ProcessingStatus: "awaiting_po"}},
 		},
 	}
 	handler := NewHandler(repository, slog.New(slog.NewTextHandler(&strings.Builder{}, nil)))
@@ -72,12 +72,15 @@ func TestListInvoicesPassesFiltersAndReturnsContract(t *testing.T) {
 	if body.Total != 1 || body.Page != 2 || body.Limit != 5 || len(body.Invoices) != 1 {
 		t.Fatalf("unexpected response: %+v", body)
 	}
+	if body.Invoices[0].ProcessingStatus != "awaiting_po" {
+		t.Fatalf("processing_status = %q, want awaiting_po", body.Invoices[0].ProcessingStatus)
+	}
 }
 
 func TestGetInvoiceReturnsEmailMetadata(t *testing.T) {
 	repository := &fakeListRepository{
 		detailResult: InvoiceDetailResponse{
-			Invoice: InvoiceSummary{ID: 42},
+			Invoice: InvoiceSummary{ID: 42, ProcessingStatus: "verified"},
 			Email: EmailData{
 				GmailID: "demo-gmail-001",
 				Sender:  stringPointer("billing@example.test"),
@@ -109,6 +112,9 @@ func TestGetInvoiceReturnsEmailMetadata(t *testing.T) {
 	if result.Email.GmailURL == nil ||
 		*result.Email.GmailURL != "https://mail.google.com/mail/u/0/#all/demo-thread-001" {
 		t.Fatalf("Gmail URL missing from response: %+v", result.Email)
+	}
+	if result.Invoice.ProcessingStatus != "verified" {
+		t.Fatalf("processing_status = %q, want verified", result.Invoice.ProcessingStatus)
 	}
 }
 

@@ -11,7 +11,8 @@ POST http://localhost:8081/api/v1/convert
 ```
 
 Invoice listing supports the OpenAPI query filters and reads from the
-PostgreSQL tables in `../init.sql`. PDF conversion runs in the same API
+PostgreSQL tables created by `../migrations/000_init.sql` and
+`../migrations/001_add_invoice_processing_status.sql`. PDF conversion runs in the same API
 process and requires `pdfinfo` and `mutool` on the host.
 
 ## Run locally
@@ -23,13 +24,22 @@ URL-safe development password and run from the repository root:
 POSTGRES_PASSWORD=choose-a-local-password docker compose up --build
 ```
 
-Compose runs only PostgreSQL and the backend. It runs `../init.sql` against a
-new database volume and waits for PostgreSQL to become healthy before starting
-the API. Stop the mock API first because it also uses port `8081`.
+Compose runs only PostgreSQL and the backend. On a new database volume,
+PostgreSQL runs the SQL files in `../migrations/` in filename order, then waits
+for PostgreSQL to become healthy before starting the API. Stop the mock API
+first because it also uses port `8081`.
 
-The database initialization script only runs when the `postgres_data` volume
-is empty. To re-seed after changing the schema, back up any data you need,
-then remove that volume explicitly.
+The SQL scripts only run when the `postgres_data` volume is empty. For an
+existing database, apply the new status migration manually from the repository
+root:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f migrations/001_add_invoice_processing_status.sql
+```
+
+The new column defaults existing rows to `awaiting_po`; update existing
+processing statuses manually if needed.
 
 To insert repeatable demonstration invoices after the stack is running:
 
@@ -48,7 +58,8 @@ database:
 ```bash
 cd backend
 export DATABASE_URL='postgres://user:password@localhost:5432/invoices?sslmode=disable'
-psql "$DATABASE_URL" -f ../init.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../migrations/000_init.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../migrations/001_add_invoice_processing_status.sql
 export ALLOWED_ORIGIN='http://localhost:5173'
 go run .
 ```

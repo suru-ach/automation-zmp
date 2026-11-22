@@ -17,15 +17,16 @@ type ListFilters struct {
 }
 
 type InvoiceSummary struct {
-	ID            int64      `json:"id"`
-	VendorName    *string    `json:"vendor_name,omitempty"`
-	InvoiceNumber *string    `json:"invoice_number,omitempty"`
-	InvoiceDate   *string    `json:"invoice_date,omitempty"`
-	PONumber      *string    `json:"po_number,omitempty"`
-	GrandTotal    *float64   `json:"grand_total,omitempty"`
-	Currency      *string    `json:"currency,omitempty"`
-	IsInvoice     *bool      `json:"is_invoice,omitempty"`
-	CreatedAt     *time.Time `json:"created_at,omitempty"`
+	ID               int64      `json:"id"`
+	VendorName       *string    `json:"vendor_name,omitempty"`
+	InvoiceNumber    *string    `json:"invoice_number,omitempty"`
+	InvoiceDate      *string    `json:"invoice_date,omitempty"`
+	PONumber         *string    `json:"po_number,omitempty"`
+	GrandTotal       *float64   `json:"grand_total,omitempty"`
+	Currency         *string    `json:"currency,omitempty"`
+	IsInvoice        *bool      `json:"is_invoice,omitempty"`
+	ProcessingStatus string     `json:"processing_status"`
+	CreatedAt        *time.Time `json:"created_at,omitempty"`
 }
 
 type InvoiceListResponse struct {

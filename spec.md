@@ -1,3 +1,5 @@
+ALLOWED_ORIGIN=https://automation-zmp.vercel.app POSTGRES_PASSWORD=localdev123 docker compose up -d --build --force-recreate backend
+
 {
   "type": "array",
   "items": {

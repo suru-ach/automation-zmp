@@ -3,12 +3,32 @@ import { generateReport, getInvoice, listInvoices } from "./api.js";
 
 const app = document.querySelector("#app");
 
+const processingStatusLabels = {
+  awaiting_po: "Awaiting PO",
+  processing: "Verifying PO",
+  verified: "Verified",
+  mismatch: "PO mismatch",
+  needs_review: "Needs review",
+  error: "Verification error",
+  not_applicable: "Not applicable",
+};
+
 const demoInvoices = [
-  { id: 1042, vendor_name: "Northwind Supplies", invoice_number: "INV-2026-041", invoice_date: "2026-11-18", po_number: "PO-8872", grand_total: 12540, currency: "INR", is_invoice: true, created_at: "2026-11-19T10:24:00Z" },
-  { id: 1041, vendor_name: "Contoso Logistics", invoice_number: "INV-9918", invoice_date: "2026-11-16", po_number: "PO-8849", grand_total: 8420.5, currency: "INR", is_invoice: true, created_at: "2026-11-17T08:15:00Z" },
-  { id: 1040, vendor_name: "Fabrikam Office", invoice_number: "INV-4412", invoice_date: "2026-11-12", po_number: "", grand_total: 2190, currency: "INR", is_invoice: true, created_at: "2026-11-13T14:02:00Z" },
-  { id: 1039, vendor_name: "Adatum Services", invoice_number: "", invoice_date: "2026-11-10", po_number: "PO-8791", grand_total: 0, currency: "INR", is_invoice: false, created_at: "2026-11-11T09:45:00Z" },
+  { id: 1042, vendor_name: "Northwind Supplies", invoice_number: "INV-2026-041", invoice_date: "2026-11-18", po_number: "PO-8872", grand_total: 12540, currency: "INR", is_invoice: true, processing_status: "awaiting_po", created_at: "2026-11-19T10:24:00Z" },
+  { id: 1041, vendor_name: "Contoso Logistics", invoice_number: "INV-9918", invoice_date: "2026-11-16", po_number: "PO-8849", grand_total: 8420.5, currency: "INR", is_invoice: true, processing_status: "awaiting_po", created_at: "2026-11-17T08:15:00Z" },
+  { id: 1040, vendor_name: "Fabrikam Office", invoice_number: "INV-4412", invoice_date: "2026-11-12", po_number: "", grand_total: 2190, currency: "INR", is_invoice: true, processing_status: "not_applicable", created_at: "2026-11-13T14:02:00Z" },
+  { id: 1039, vendor_name: "Adatum Services", invoice_number: "", invoice_date: "2026-11-10", po_number: "PO-8791", grand_total: 0, currency: "INR", is_invoice: false, processing_status: "not_applicable", created_at: "2026-11-11T09:45:00Z" },
 ];
+
+function processingStatusLabel(status) {
+  return Object.hasOwn(processingStatusLabels, status)
+    ? processingStatusLabels[status]
+    : "Unknown";
+}
+
+function processingStatusClass(status) {
+  return Object.hasOwn(processingStatusLabels, status) ? status : "unknown";
+}
 
 function icon(name) {
   const icons = {
@@ -132,15 +152,15 @@ function invoicesPage() {
             <td>${formatDate(invoice.invoice_date)}</td>
             <td>${escapeHtml(invoice.po_number || "—")}</td>
             <td class="amount">${formatMoney(invoice.grand_total, invoice.currency)}</td>
-            <td><span class="badge ${invoice.is_invoice ? "verified" : "review"}">${invoice.is_invoice ? "Verified" : "Review"}</span></td>
+            <td><span class="badge ${processingStatusClass(invoice.processing_status)}">${processingStatusLabel(invoice.processing_status)}</span></td>
           </tr>`).join("")
       : `<tr><td colspan="6" class="empty">No invoices match these filters.</td></tr>`;
 
     const total = data.total ?? data.invoices.length;
     document.querySelector("#invoice-summary").innerHTML = `
       <article><span>Total invoices</span><strong>${total}</strong></article>
-      <article><span>Verified</span><strong>${data.invoices.filter((row) => row.is_invoice).length}</strong></article>
-      <article><span>Needs review</span><strong>${data.invoices.filter((row) => !row.is_invoice).length}</strong></article>`;
+      <article><span>PO verified</span><strong>${data.invoices.filter((row) => row.processing_status === "verified").length}</strong></article>
+      <article><span>Awaiting PO</span><strong>${data.invoices.filter((row) => row.processing_status === "awaiting_po").length}</strong></article>`;
     document.querySelector("#page-info").textContent = `Page ${data.page} · ${total} records`;
     document.querySelector("#prev-page").disabled = state.page <= 1;
     document.querySelector("#next-page").disabled = state.page * state.limit >= total;
@@ -289,7 +309,8 @@ function renderInvoiceDetails(details) {
         ["Invoice date", invoice.invoice_date],
         ["Due date", invoice.due_date],
         ["PO number", invoice.po_number],
-        ["Status", invoice.is_invoice === undefined ? "—" : invoice.is_invoice ? "Verified invoice" : "Needs review"],
+        ["Processing status", processingStatusLabel(invoice.processing_status)],
+        ["Invoice classification", invoice.is_invoice === undefined ? "—" : invoice.is_invoice ? "Invoice" : "Not an invoice"],
         ["Subtotal", invoice.subtotal === undefined ? "—" : formatMoney(invoice.subtotal, invoice.currency)],
         ["Tax", invoice.tax_amount === undefined ? "—" : formatMoney(invoice.tax_amount, invoice.currency)],
         ["Total", invoice.grand_total === undefined ? "—" : formatMoney(invoice.grand_total, invoice.currency)],
