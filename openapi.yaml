@@ -294,38 +294,29 @@ paths:
     post:
       tags:
         - Reports
-      summary: Generate invoice reconciliation report
+      summary: Reconcile purchase orders against stored invoices
       description: |
-        Generates an Excel report by comparing invoice data with
-        the supplied purchase order workbook.
+        Accepts normalized CSV/XLSX sheet data. Each unique PO number is
+        matched to stored invoice records by PO number, vendor, and currency.
+        The PO amount must exactly equal the sum of matching invoice totals.
+        Matching invoice rows are updated to verified or mismatch. Rows that
+        cannot be matched unambiguously are marked needs_review in the
+        returned workbook. Stored invoices with the same PO number are also
+        updated to needs_review; a PO number with no stored invoice has no
+        database row to update.
 
-        If from_date and to_date are omitted, the report uses
-        the previous calendar month.
-
-        This endpoint does not modify invoice records or approval status.
+        Duplicate PO numbers in the uploaded workbook are marked needs_review.
+        The returned workbook includes or updates an automation_status column.
       operationId: generateReport
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              type: object
-              required:
-                - file
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: Purchase order Excel or CSV file.
-                from_date:
-                  type: string
-                  format: date
-                to_date:
-                  type: string
-                  format: date
+              $ref: '#/components/schemas/ReportRequest'
       responses:
         '200':
-          description: Excel report generated successfully
+          description: Reconciliation completed and an annotated Excel workbook returned
           content:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema:
@@ -333,6 +324,10 @@ paths:
                 format: binary
         '400':
           $ref: '#/components/responses/BadRequest'
+        '413':
+          description: Parsed workbook exceeds the request size limit
+        '415':
+          description: Request content type must be application/json
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -352,6 +347,65 @@ components:
         maxLength: 255
 
   schemas:
+
+    ReportRequest:
+      type: object
+      required:
+        - file_name
+        - sheets
+      properties:
+        file_name:
+          type: string
+          maxLength: 255
+        sheets:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ReportSheet'
+
+    ReportSheet:
+      type: object
+      required:
+        - name
+        - header_row
+        - columns
+        - rows
+      properties:
+        name:
+          type: string
+        header_row:
+          type: integer
+          minimum: 1
+        columns:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required:
+              - key
+              - label
+            properties:
+              key:
+                type: string
+              label:
+                type: string
+        rows:
+          type: array
+          maxItems: 10000
+          items:
+            type: object
+            required:
+              - source_row
+              - values
+            properties:
+              source_row:
+                type: integer
+                minimum: 1
+              values:
+                type: object
+                additionalProperties:
+                  type: string
 
     InvoiceCreateRequest:
       type: object

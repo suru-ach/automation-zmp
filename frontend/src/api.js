@@ -41,15 +41,11 @@ export async function getInvoice(id) {
   return response.json();
 }
 
-export async function generateReport({ file, fromDate, toDate }) {
-  const formData = new FormData();
-  formData.append("file", file);
-  if (fromDate) formData.append("from_date", fromDate);
-  if (toDate) formData.append("to_date", toDate);
-
+export async function generateReport({ fileName, sheets }) {
   const response = await apiFetch(`${API_BASE_URL}/report.gen`, {
     method: "POST",
-    body: formData,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_name: fileName, sheets }),
   });
 
   if (!response.ok) throw new Error(await parseError(response));
@@ -59,6 +55,6 @@ export async function generateReport({ file, fromDate, toDate }) {
 
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="?([^";]+)"?/i);
-  const fallbackName = `invoice-reconciliation-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const fallbackName = `purchase-order-reconciliation-${new Date().toISOString().slice(0, 10)}.xlsx`;
   return { blob, filename: match?.[1] || fallbackName };
 }

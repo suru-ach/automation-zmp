@@ -1,7 +1,7 @@
 import "./styles.css";
 import Papa from "papaparse";
 import readExcelFile from "read-excel-file/browser";
-import { getInvoice, listInvoices } from "./api.js";
+import { generateReport, getInvoice, listInvoices } from "./api.js";
 
 const app = document.querySelector("#app");
 
@@ -233,7 +233,7 @@ function reportsPage() {
       <div class="report-card">
         <div class="report-heading">
           <div class="report-icon">${icon("chart")}</div>
-          <div><h2>CSV or Excel parser</h2><p>Parse all rows and preview the normalized data. The file stays in your browser.</p></div>
+          <div><h2>CSV or Excel parser</h2><p>Parse and preview locally; parsed PO rows are sent to the API only when you generate the report.</p></div>
         </div>
         <div class="parse-step-heading">
           <span class="step-number">1</span>
@@ -262,6 +262,12 @@ function reportsPage() {
           </div>
           <div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Workbook sheets"></div>
           <div id="sheet-preview"></div>
+          <div class="parse-step-heading">
+            <span class="step-number">4</span>
+            <div><h2>Generate report</h2><p>Match PO number, vendor, currency, and exact totals against stored invoices.</p></div>
+          </div>
+          <div id="report-message" class="notice" role="status" hidden></div>
+          <button id="generate-report" class="primary generate" type="button" disabled>Generate and download Excel</button>
         </section>
       </div>
     </section>
@@ -272,6 +278,8 @@ function reportsPage() {
   const parseButton = document.querySelector("#parse-workbook");
   const message = document.querySelector("#workbook-message");
   const result = document.querySelector("#workbook-result");
+  const reportButton = document.querySelector("#generate-report");
+  const reportMessage = document.querySelector("#report-message");
   const previewLimit = 50;
   let parsedSheets = [];
 
@@ -280,6 +288,8 @@ function reportsPage() {
     fileLabel.textContent = file?.name || "Choose a CSV or Excel file";
     result.hidden = true;
     message.hidden = true;
+    reportMessage.hidden = true;
+    reportButton.disabled = true;
     parsedSheets = [];
     const extension = file?.name.split(".").pop().toLowerCase();
     parseButton.disabled = !file || !["csv", "xlsx"].includes(extension);
@@ -309,9 +319,10 @@ function reportsPage() {
       parsedSheets = sourceSheets.map(({ sheet, data }) => normalizeSheet(sheet, data));
       const rowCount = parsedSheets.reduce((total, sheet) => total + sheet.rows.length, 0);
       renderWorkbookPreview(parsedSheets, file.name, previewLimit);
+      reportButton.disabled = rowCount === 0;
       showMessage(
         message,
-        `${rowCount} data row${rowCount === 1 ? "" : "s"} normalized across ${parsedSheets.length} sheet${parsedSheets.length === 1 ? "" : "s"}. No data was sent to the API.`,
+        `${rowCount} data row${rowCount === 1 ? "" : "s"} normalized across ${parsedSheets.length} sheet${parsedSheets.length === 1 ? "" : "s"}.`,
         "success",
       );
     } catch (error) {
@@ -319,6 +330,30 @@ function reportsPage() {
     } finally {
       parseButton.disabled = false;
       parseButton.textContent = "Parse file";
+    }
+  });
+
+  reportButton.addEventListener("click", async () => {
+    const file = fileInput.files[0];
+    if (!file || parsedSheets.length === 0) return;
+
+    reportButton.disabled = true;
+    reportButton.textContent = "Generating report…";
+    reportMessage.hidden = true;
+    try {
+      const { blob, filename } = await generateReport({ fileName: file.name, sheets: parsedSheets });
+      const url = URL.createObjectURL(blob);
+      const download = document.createElement("a");
+      download.href = url;
+      download.download = filename;
+      download.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showMessage(reportMessage, "Report generated and downloaded. Any matched invoices were updated.", "success");
+    } catch (error) {
+      showMessage(reportMessage, `Could not generate report: ${error.message}`, "error");
+    } finally {
+      reportButton.disabled = false;
+      reportButton.textContent = "Generate and download Excel";
     }
   });
 }
@@ -344,7 +379,7 @@ function normalizeSheet(sheetName, rawRows) {
   const rows = Array.isArray(rawRows) ? rawRows : [];
   const headerIndex = rows.findIndex((row) =>
     Array.isArray(row) && row.some((value) => formatSpreadsheetValue(value).trim() !== ""));
-  if (headerIndex < 0) return { name: sheetName, columns: [], rows: [] };
+  if (headerIndex < 0) return { name: sheetName, header_row: 1, columns: [], rows: [] };
 
   const headerRow = rows[headerIndex];
   const columnCount = rows.reduce(
@@ -354,8 +389,21 @@ function normalizeSheet(sheetName, rawRows) {
   const usedKeys = new Set();
   const columns = Array.from({ length: columnCount }, (_, index) => {
     const label = formatSpreadsheetValue(headerRow[index]).trim() || `Column ${index + 1}`;
-    const baseKey = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+    const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
       || `column_${index + 1}`;
+    const aliases = {
+      amount: "po_amount",
+      currency_code: "currency",
+      po: "po_number",
+      po_total: "po_amount",
+      purchase_order: "po_number",
+      purchase_order_number: "po_number",
+      supplier: "vendor",
+      supplier_name: "vendor",
+      total_amount: "po_amount",
+      vendor_name: "vendor",
+    };
+    const baseKey = aliases[normalizedLabel] || normalizedLabel;
     let key = baseKey;
     let suffix = 2;
     while (usedKeys.has(key)) key = `${baseKey}_${suffix++}`;
@@ -376,7 +424,7 @@ function normalizeSheet(sheetName, rawRows) {
       formatSpreadsheetValue(cells[index]).trim(),
     ])),
   }));
-  return { name: sheetName, columns, rows: normalizedRows };
+  return { name: sheetName, header_row: headerIndex + 1, columns, rows: normalizedRows };
 }
 
 function renderWorkbookPreview(sheets, fileName, previewLimit) {

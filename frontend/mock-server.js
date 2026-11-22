@@ -180,48 +180,81 @@ function filterInvoices(searchParams) {
   return { total, page, limit, invoices: result.slice((page - 1) * limit, page * limit).map(summary) };
 }
 
-function multipartFields(body, contentType) {
-  const boundary = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
-  if (!boundary) return null;
-  const separator = `--${(boundary[1] || boundary[2]).trim()}`;
-  const parts = body.toString("latin1").split(separator);
-  const fields = {};
-  let hasFile = false;
-
-  for (const part of parts) {
-    const headerEnd = part.indexOf("\r\n\r\n");
-    if (headerEnd < 0) continue;
-    const headers = part.slice(0, headerEnd);
-    const name = headers.match(/name="([^"]+)"/i)?.[1];
-    if (!name) continue;
-    if (name === "file") {
-      hasFile = Boolean(headers.match(/filename="[^"]+"/i));
-    } else {
-      fields[name] = part.slice(headerEnd + 4).replace(/\r\n--?\s*$/, "").replace(/\r\n$/, "");
-    }
-  }
-  return { fields, hasFile };
-}
-
 function csvCell(value) {
   const text = String(value ?? "");
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-function generateCsv(fields) {
-  const rows = invoices.filter((invoice) => {
-    if (fields.from_date && invoice.invoice_date < fields.from_date) return false;
-    if (fields.to_date && invoice.invoice_date > fields.to_date) return false;
-    return true;
-  });
-  const lines = [
-    ["Invoice ID", "Vendor", "Invoice Number", "Invoice Date", "PO Number", "Currency", "Total", "Status"].map(csvCell).join(","),
-    ...rows.map((invoice) => [
-      invoice.id, invoice.vendor_name, invoice.invoice_number, invoice.invoice_date,
-      invoice.po_number, invoice.currency, invoice.grand_total, processingStatusLabel(invoice.processing_status),
-    ].map(csvCell).join(",")),
-  ];
-  return lines.join("\r\n");
+function amountInMinorUnits(value) {
+  const normalized = String(value ?? "").trim().replaceAll(",", "");
+  if (!/^-?\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const [whole, fraction = ""] = normalized.replace("-", "").split(".");
+  const amount = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+  return normalized.startsWith("-") ? -amount : amount;
+}
+
+function generatePOCsv(workbook) {
+  if (!Array.isArray(workbook.sheets) || workbook.sheets.length === 0) {
+    throw new Error("The request must include at least one parsed sheet.");
+  }
+  const columns = new Map();
+  for (const sheet of workbook.sheets) {
+    if (!Array.isArray(sheet.rows) || sheet.rows.length === 0) continue;
+    const keys = new Set(sheet.columns.map((column) => column.key));
+    for (const required of ["po_number", "vendor", "po_amount", "currency"]) {
+      if (!keys.has(required)) throw new Error(`Sheet "${sheet.name}" is missing the required ${required} column.`);
+    }
+    for (const column of sheet.columns) {
+      if (column.key !== "automation_status" && !columns.has(column.key)) {
+        columns.set(column.key, column.label);
+      }
+    }
+  }
+
+  const poCounts = new Map();
+  for (const sheet of workbook.sheets) {
+    for (const row of sheet.rows || []) {
+      const poNumber = String(row.values?.po_number || "").trim().toUpperCase();
+      if (poNumber) poCounts.set(poNumber, (poCounts.get(poNumber) || 0) + 1);
+    }
+  }
+
+  const headers = ["source_sheet", ...columns.values(), "automation_status"];
+  const outputRows = [];
+  for (const sheet of workbook.sheets) {
+    for (const row of sheet.rows || []) {
+      const values = row.values || {};
+      const poNumber = String(values.po_number || "").trim();
+      const poAmount = amountInMinorUnits(values.po_amount);
+      const poInvoices = poNumber ? invoices.filter((invoice) =>
+        invoice.is_invoice === true &&
+        String(invoice.po_number || "").trim().toLowerCase() === poNumber.toLowerCase()
+      ) : [];
+      const candidates = poInvoices.filter((invoice) =>
+        String(invoice.vendor_name || "").trim().toLowerCase() === String(values.vendor || "").trim().toLowerCase() &&
+        String(invoice.currency || "").trim().toLowerCase() === String(values.currency || "").trim().toLowerCase()
+      );
+      let status = "needs_review";
+      if (poNumber && poCounts.get(poNumber.toUpperCase()) === 1 && poAmount !== null &&
+          String(values.vendor || "").trim() && String(values.currency || "").trim() && candidates.length > 0) {
+        const totals = candidates.map((invoice) => amountInMinorUnits(invoice.grand_total));
+        if (totals.every((total) => total !== null)) {
+          const sum = totals.reduce((total, amount) => total + amount, 0n);
+          status = sum === poAmount ? "verified" : "mismatch";
+          candidates.forEach((invoice) => { invoice.processing_status = status; });
+        }
+      }
+      if (status === "needs_review") {
+        poInvoices.forEach((invoice) => { invoice.processing_status = status; });
+      }
+      outputRows.push([
+        sheet.name,
+        ...[...columns.keys()].map((key) => values[key] || ""),
+        status,
+      ].map(csvCell).join(","));
+    }
+  }
+  return [headers.map(csvCell).join(","), ...outputRows].join("\r\n");
 }
 
 const server = createServer(async (request, response) => {
@@ -304,25 +337,26 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && path === "/api/v1/report.gen") {
       const body = await readBody(request);
-      const contentType = request.headers["content-type"] || "";
-      const multipart = multipartFields(body, contentType);
-      if (!multipart?.hasFile) {
-        return sendJson(response, 400, { err_code: "FILE_REQUIRED", err_msg: "Upload a purchase order file in the file field." });
+      let workbook;
+      try {
+        workbook = JSON.parse(body.toString("utf8"));
+      } catch {
+        return sendJson(response, 400, { err_code: "INVALID_REQUEST", err_msg: "Send parsed workbook data as JSON." });
       }
-      const { fields } = multipart;
-      const fromDate = fields.from_date || "";
-      const toDate = fields.to_date || "";
-      if ((fromDate && !/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) || (toDate && !/^\d{4}-\d{2}-\d{2}$/.test(toDate))) {
-        return sendJson(response, 400, { err_code: "INVALID_DATE", err_msg: "Report dates must use YYYY-MM-DD format." });
+      let csv;
+      try {
+        csv = generatePOCsv(workbook);
+      } catch (error) {
+        return sendJson(response, 400, { err_code: "INVALID_WORKBOOK", err_msg: error.message });
       }
 
       response.writeHead(200, {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="mock-invoice-report-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "Content-Disposition": `attachment; filename="mock-purchase-order-reconciliation.csv"`,
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Expose-Headers": "Content-Disposition",
       });
-      return response.end(generateCsv(fields));
+      return response.end(csv);
     }
 
     return sendJson(response, 404, { err_code: "NOT_FOUND", err_msg: "Mock API route not found." });
