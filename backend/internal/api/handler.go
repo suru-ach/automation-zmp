@@ -6,10 +6,12 @@ import (
 
 	"invoice-tracker/backend/internal/invoices"
 	"invoice-tracker/backend/internal/pdfimages"
+	"invoice-tracker/backend/internal/reports"
 )
 
 func NewHandler(
 	invoiceRepository invoices.Repository,
+	reportGenerator reports.Generator,
 	pdfConverter pdfimages.Converter,
 	allowedOrigin string,
 	logger *slog.Logger,
@@ -20,6 +22,7 @@ func NewHandler(
 	mux.Handle("/api/v1/invoice.bulk-create", invoiceHandler)
 	mux.Handle("/api/v1/invoice.list", invoiceHandler)
 	mux.Handle("/api/v1/invoice.get", invoiceHandler)
+	mux.Handle("/api/v1/report.gen", reports.NewHandler(reportGenerator, logger))
 	mux.Handle("/api/v1/convert", pdfimages.NewHandler(pdfConverter, logger))
 	return cors(mux, allowedOrigin)
 }
@@ -29,6 +32,7 @@ func cors(next http.Handler, allowedOrigin string) http.Handler {
 		origin := r.Header.Get("Origin")
 		if origin != "" && origin == allowedOrigin {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
 			w.Header().Add("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {

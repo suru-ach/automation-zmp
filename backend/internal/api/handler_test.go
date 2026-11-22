@@ -10,6 +10,7 @@ import (
 
 	"invoice-tracker/backend/internal/invoices"
 	"invoice-tracker/backend/internal/pdfimages"
+	"invoice-tracker/backend/internal/reports"
 )
 
 type emptyInvoiceRepository struct{}
@@ -36,9 +37,16 @@ func (unusedPDFConverter) Render(context.Context, string, string, int) error {
 	return nil
 }
 
+type emptyReportGenerator struct{}
+
+func (emptyReportGenerator) Generate(context.Context, *reports.WorkbookRequest) ([]byte, error) {
+	return []byte("test-workbook"), nil
+}
+
 func TestRoutesShareConfiguredOrigin(t *testing.T) {
 	handler := NewHandler(
 		emptyInvoiceRepository{},
+		emptyReportGenerator{},
 		unusedPDFConverter{},
 		"http://localhost:5173",
 		slog.New(slog.NewTextHandler(testWriter{t}, nil)),
@@ -60,6 +68,7 @@ func TestRoutesShareConfiguredOrigin(t *testing.T) {
 func TestInvoiceCreateRouteIsRegistered(t *testing.T) {
 	handler := NewHandler(
 		emptyInvoiceRepository{},
+		emptyReportGenerator{},
 		unusedPDFConverter{},
 		"http://localhost:5173",
 		slog.New(slog.NewTextHandler(testWriter{t}, nil)),
@@ -82,6 +91,7 @@ func TestInvoiceCreateRouteIsRegistered(t *testing.T) {
 func TestInvoiceBulkCreateRouteIsRegistered(t *testing.T) {
 	handler := NewHandler(
 		emptyInvoiceRepository{},
+		emptyReportGenerator{},
 		unusedPDFConverter{},
 		"http://localhost:5173",
 		slog.New(slog.NewTextHandler(testWriter{t}, nil)),
@@ -105,6 +115,41 @@ func TestInvoiceBulkCreateRouteIsRegistered(t *testing.T) {
 	}
 }
 
+func TestReportRouteIsRegistered(t *testing.T) {
+	handler := NewHandler(
+		emptyInvoiceRepository{},
+		emptyReportGenerator{},
+		unusedPDFConverter{},
+		"http://localhost:5173",
+		slog.New(slog.NewTextHandler(testWriter{t}, nil)),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/report.gen", strings.NewReader(`{
+		"file_name":"purchase-orders.xlsx",
+		"sheets":[{
+			"name":"POs",
+			"header_row":1,
+			"columns":[
+				{"key":"po_number","label":"PO Number"},
+				{"key":"vendor","label":"Vendor"},
+				{"key":"po_amount","label":"PO Amount"},
+				{"key":"currency","label":"Currency"}
+			],
+			"rows":[{"source_row":2,"values":{"po_number":"PO-1","vendor":"Vendor","po_amount":"10","currency":"INR"}}]
+		}]
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body)
+	}
+	if response.Header().Get("Content-Type") != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+		t.Fatalf("content type = %q, want XLSX", response.Header().Get("Content-Type"))
+	}
+}
+
 type testWriter struct {
 	t *testing.T
 }
@@ -115,3 +160,4 @@ func (w testWriter) Write(data []byte) (int, error) {
 }
 
 var _ pdfimages.Converter = unusedPDFConverter{}
+var _ reports.Generator = emptyReportGenerator{}

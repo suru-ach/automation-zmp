@@ -16,6 +16,7 @@ import (
 	"invoice-tracker/backend/internal/api"
 	"invoice-tracker/backend/internal/invoices"
 	"invoice-tracker/backend/internal/pdfimages"
+	"invoice-tracker/backend/internal/reports"
 )
 
 func main() {
@@ -55,8 +56,14 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           api.NewHandler(invoices.NewSQLRepository(db), pdfimages.NewCommandConverter(), allowedOrigin, logger),
+		Addr: ":" + port,
+		Handler: api.NewHandler(
+			invoices.NewSQLRepository(db),
+			reports.NewSQLGenerator(db),
+			pdfimages.NewCommandConverter(),
+			allowedOrigin,
+			logger,
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       45 * time.Second,
 		WriteTimeout:      90 * time.Second,
