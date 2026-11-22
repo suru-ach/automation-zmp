@@ -1,5 +1,7 @@
 import "./styles.css";
-import { generateReport, getInvoice, listInvoices } from "./api.js";
+import Papa from "papaparse";
+import readExcelFile from "read-excel-file/browser";
+import { getInvoice, listInvoices } from "./api.js";
 
 const app = document.querySelector("#app");
 
@@ -225,74 +227,219 @@ function invoicesPage() {
 function reportsPage() {
   shell(`
     <header class="topbar">
-      <div><p class="eyebrow">Documents</p><h1>Generate report</h1></div>
+      <div><p class="eyebrow">Documents</p><h1>Parse PO file</h1></div>
     </header>
-    <section class="content narrow">
+    <section class="content">
       <div class="report-card">
         <div class="report-heading">
           <div class="report-icon">${icon("chart")}</div>
-          <div><h2>Invoice reconciliation</h2><p>Compare extracted invoices with a purchase order workbook.</p></div>
+          <div><h2>CSV or Excel parser</h2><p>Parse all rows and preview the normalized data. The file stays in your browser.</p></div>
         </div>
-        <form id="report-form">
+        <div class="parse-step-heading">
+          <span class="step-number">1</span>
+          <div><h2>Upload PO file</h2><p>Select a .csv or .xlsx file; the first non-empty row is treated as the header.</p></div>
+        </div>
+        <form id="workbook-form">
           <div class="upload-zone" id="upload-zone">
-            <input id="po-file" name="file" type="file" accept=".xlsx,.xls,.csv" required>
-            <label for="po-file">
+            <input id="workbook-file" name="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            <label for="workbook-file">
               <span class="upload-symbol">↑</span>
-              <strong id="file-label">Choose an Excel or CSV file</strong>
-              <small>.xlsx, .xls or .csv</small>
+              <strong id="workbook-file-label">Choose a CSV or Excel file</strong>
+              <small>.csv or .xlsx</small>
             </label>
           </div>
-          <div class="date-row">
-            <label>From date <input id="report-from" type="date"></label>
-            <label>To date <input id="report-to" type="date"></label>
-          </div>
-          <p class="hint">Leave dates empty to use the previous calendar month.</p>
-          <div id="report-message" class="notice" hidden></div>
-          <button id="generate-button" class="primary generate" type="submit">Generate Excel report</button>
+          <div id="workbook-message" class="notice" role="status" hidden></div>
+          <button id="parse-workbook" class="primary generate" type="submit" disabled>Parse file</button>
         </form>
+        <section id="workbook-result" class="workbook-result" aria-live="polite" hidden>
+          <div class="parse-step-heading">
+            <span class="step-number">2</span>
+            <div><h2>File parsed</h2><p id="workbook-summary"></p></div>
+          </div>
+          <div class="parse-step-heading">
+            <span class="step-number">3</span>
+            <div><h2>Parsed sheet data</h2><p id="sheet-summary"></p></div>
+          </div>
+          <div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Workbook sheets"></div>
+          <div id="sheet-preview"></div>
+        </section>
       </div>
     </section>
   `);
 
-  const fileInput = document.querySelector("#po-file");
-  const fileLabel = document.querySelector("#file-label");
+  const fileInput = document.querySelector("#workbook-file");
+  const fileLabel = document.querySelector("#workbook-file-label");
+  const parseButton = document.querySelector("#parse-workbook");
+  const message = document.querySelector("#workbook-message");
+  const result = document.querySelector("#workbook-result");
+  const previewLimit = 50;
+  let parsedSheets = [];
+
   fileInput.addEventListener("change", () => {
-    fileLabel.textContent = fileInput.files[0]?.name || "Choose an Excel or CSV file";
+    const file = fileInput.files[0];
+    fileLabel.textContent = file?.name || "Choose a CSV or Excel file";
+    result.hidden = true;
+    message.hidden = true;
+    parsedSheets = [];
+    const extension = file?.name.split(".").pop().toLowerCase();
+    parseButton.disabled = !file || !["csv", "xlsx"].includes(extension);
+    if (file && !parseButton.disabled) return;
+    if (file) showMessage(message, "Please choose a .csv or .xlsx file.", "error");
   });
 
-  document.querySelector("#report-form").addEventListener("submit", async (event) => {
+  document.querySelector("#workbook-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const button = document.querySelector("#generate-button");
-    const message = document.querySelector("#report-message");
-    if (!fileInput.files[0]) {
-      showMessage(message, "Choose a purchase order file first.", "error");
+    const file = fileInput.files[0];
+    const extension = file?.name.split(".").pop().toLowerCase();
+    if (!file || !["csv", "xlsx"].includes(extension)) {
+      showMessage(message, "Choose a .csv or .xlsx file first.", "error");
       return;
     }
 
-    button.disabled = true;
-    button.textContent = "Generating…";
+    parseButton.disabled = true;
+    parseButton.textContent = "Parsing file…";
     message.hidden = true;
+    result.hidden = true;
 
     try {
-      const result = await generateReport({
-        file: fileInput.files[0],
-        fromDate: document.querySelector("#report-from").value,
-        toDate: document.querySelector("#report-to").value,
-      });
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.filename;
-      link.click();
-      URL.revokeObjectURL(url);
-      showMessage(message, "Report generated successfully.", "success");
+      const sourceSheets = await parseUploadedFile(file, extension);
+      if (!Array.isArray(sourceSheets) || sourceSheets.length === 0) {
+        throw new Error("The file does not contain any readable data.");
+      }
+      parsedSheets = sourceSheets.map(({ sheet, data }) => normalizeSheet(sheet, data));
+      const rowCount = parsedSheets.reduce((total, sheet) => total + sheet.rows.length, 0);
+      renderWorkbookPreview(parsedSheets, file.name, previewLimit);
+      showMessage(
+        message,
+        `${rowCount} data row${rowCount === 1 ? "" : "s"} normalized across ${parsedSheets.length} sheet${parsedSheets.length === 1 ? "" : "s"}. No data was sent to the API.`,
+        "success",
+      );
     } catch (error) {
-      showMessage(message, error.message, "error");
+      showMessage(message, `Could not parse file: ${error.message}`, "error");
     } finally {
-      button.disabled = false;
-      button.textContent = "Generate Excel report";
+      parseButton.disabled = false;
+      parseButton.textContent = "Parse file";
     }
   });
+}
+
+async function parseUploadedFile(file, extension) {
+  if (extension === "xlsx") return readExcelFile(file);
+  if (extension !== "csv") throw new Error("Only CSV and XLSX files are supported.");
+
+  const parsed = await new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      complete: resolve,
+      error: reject,
+    });
+  });
+  if (parsed.errors.length > 0) {
+    throw new Error(parsed.errors[0].message);
+  }
+  const sheetName = file.name.replace(/\.csv$/i, "") || "CSV";
+  return [{ sheet: sheetName, data: parsed.data }];
+}
+
+function normalizeSheet(sheetName, rawRows) {
+  const rows = Array.isArray(rawRows) ? rawRows : [];
+  const headerIndex = rows.findIndex((row) =>
+    Array.isArray(row) && row.some((value) => formatSpreadsheetValue(value).trim() !== ""));
+  if (headerIndex < 0) return { name: sheetName, columns: [], rows: [] };
+
+  const headerRow = rows[headerIndex];
+  const columnCount = rows.reduce(
+    (max, row) => Math.max(max, Array.isArray(row) ? row.length : 0),
+    headerRow.length,
+  );
+  const usedKeys = new Set();
+  const columns = Array.from({ length: columnCount }, (_, index) => {
+    const label = formatSpreadsheetValue(headerRow[index]).trim() || `Column ${index + 1}`;
+    const baseKey = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+      || `column_${index + 1}`;
+    let key = baseKey;
+    let suffix = 2;
+    while (usedKeys.has(key)) key = `${baseKey}_${suffix++}`;
+    usedKeys.add(key);
+    return { key, label };
+  });
+
+  const dataRows = rows.slice(headerIndex + 1)
+    .map((cells, index) => ({
+      source_row: headerIndex + index + 2,
+      cells: Array.isArray(cells) ? cells : [],
+    }))
+    .filter(({ cells }) => cells.some((value) => formatSpreadsheetValue(value).trim() !== ""));
+  const normalizedRows = dataRows.map(({ source_row, cells }) => ({
+    source_row,
+    values: Object.fromEntries(columns.map(({ key }, index) => [
+      key,
+      formatSpreadsheetValue(cells[index]).trim(),
+    ])),
+  }));
+  return { name: sheetName, columns, rows: normalizedRows };
+}
+
+function renderWorkbookPreview(sheets, fileName, previewLimit) {
+  const result = document.querySelector("#workbook-result");
+  const tabs = document.querySelector("#sheet-tabs");
+  const preview = document.querySelector("#sheet-preview");
+  const totalRows = sheets.reduce((total, sheet) => total + sheet.rows.length, 0);
+  document.querySelector("#workbook-summary").textContent =
+    `${fileName} · ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} · ${totalRows} normalized data row${totalRows === 1 ? "" : "s"}`;
+  result.hidden = false;
+
+  function showSheet(index) {
+    const sheet = sheets[index];
+    const previewRows = sheet.rows.slice(0, previewLimit);
+    tabs.querySelectorAll("[role='tab']").forEach((tab, tabIndex) => {
+      tab.classList.toggle("active", tabIndex === index);
+      tab.setAttribute("aria-selected", String(tabIndex === index));
+    });
+    document.querySelector("#sheet-summary").textContent =
+      `${sheet.name} · ${sheet.rows.length} data row${sheet.rows.length === 1 ? "" : "s"} · ` +
+      `${sheet.columns.length} column${sheet.columns.length === 1 ? "" : "s"} · ` +
+      `${Math.min(sheet.rows.length, previewLimit)} of ${sheet.rows.length} rows shown`;
+
+    if (sheet.columns.length === 0) {
+      preview.innerHTML = '<p class="detail-empty">This sheet has no data.</p>';
+      return;
+    }
+
+    const columns = sheet.columns.map(({ label }) =>
+      `<th scope="col">${escapeHtml(label)}</th>`).join("");
+    const body = previewRows.length
+      ? previewRows.map((row) => `
+      <tr>
+        <th scope="row">${row.source_row}</th>
+        ${sheet.columns.map(({ key }) =>
+          `<td>${escapeHtml(row.values[key])}</td>`).join("")}
+      </tr>`).join("")
+      : `<tr><td class="empty" colspan="${sheet.columns.length + 1}">No data rows after the header.</td></tr>`;
+    preview.innerHTML = `
+      <div class="workbook-table-wrap">
+        <table class="workbook-table">
+          <thead><tr><th scope="col">Row</th>${columns}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+  }
+
+  tabs.innerHTML = sheets.map((sheet, index) => `
+    <button class="sheet-tab${index === 0 ? " active" : ""}" type="button" role="tab"
+      aria-selected="${index === 0}" data-sheet-index="${index}">${escapeHtml(sheet.name)}</button>
+  `).join("");
+  tabs.querySelectorAll("[role='tab']").forEach((tab) => {
+    tab.addEventListener("click", () => showSheet(Number(tab.dataset.sheetIndex)));
+  });
+  showSheet(0);
+}
+
+function formatSpreadsheetValue(value) {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleString();
+  }
+  return String(value);
 }
 
 function showMessage(element, text, type) {

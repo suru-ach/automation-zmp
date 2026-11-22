@@ -11,5 +11,9 @@
   },
   "devDependencies": {
     "vite": "^7.1.12"
+  },
+  "dependencies": {
+    "papaparse": "^5.7.1",
+    "read-excel-file": "^9.3.20"
   }
 }
